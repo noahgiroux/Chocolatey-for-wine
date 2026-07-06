@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y mingw-w64 p7zip-full wget upx-ucl
+          sudo apt-get install -y mingw-w64 p7zip-full wget
 
       - name: Determine version
         id: version
@@ -74,7 +74,7 @@ jobs:
           echo "Downloading 7-Zip from: $URL"
           wget "$URL" -O 7z_installer.exe || { echo "Failed to download 7-Zip installer"; exit 1; }
           7z x 7z_installer.exe -o7z-pkg -y 7z.exe 7z.dll License.txt
-          upx --best -q 7z-pkg/7z.exe 7z-pkg/7z.dll || echo "UPX compression skipped"
+
 
       - name: Build c_drive.7z
         run: |
