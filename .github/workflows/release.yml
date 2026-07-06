@@ -53,7 +53,7 @@ jobs:
 
       - name: Download 7-Zip installer and extract 7z.exe/7z.dll
         run: |
-          URL="https://www.7-zip.org/a/7z2602-x64.exe"
+          URL="https://www.7-zip.org/a/7z2600-x64.exe"
           echo "Downloading 7-Zip from: $URL"
           wget "$URL" -O 7z_installer.exe || { echo "Failed to download 7-Zip installer"; exit 1; }
           7z x 7z_installer.exe -o7z-pkg -y 7z.exe 7z.dll License.txt
