@@ -1,12 +1,15 @@
 name: Build Release
 
+# The default is explicitly set to 0.5c.755 due to char limit
+# See installer.c line 191ish
+
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version (e.g. 0.5c.999)'
+        description: 'Version (e.g. 0.5c.755)'
         required: false
-        default: '0.5c.999'
+        default: '0.5c.755'
   push:
     tags:
       - 'v*'
