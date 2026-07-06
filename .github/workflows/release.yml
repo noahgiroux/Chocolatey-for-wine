@@ -26,25 +26,6 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
-      - name: Generate linker.ld for mainv1.c
-        run: |
-          cat > linker.ld << 'LDEOF'
-          SECTIONS {
-            . = SIZEOF_HEADERS;
-            . = ALIGN(__section_alignment__);
-            .idata __image_base__ + (__section_alignment__ < 0x1000 ? . : __section_alignment__) : {
-              SORT(*)(.idata$2); SORT(*)(.idata$3);
-              LONG (0); LONG (0); LONG (0); LONG (0); LONG (0);
-              SORT(*)(.idata$4); __IAT_start__ = .; SORT(*)(.idata$5); __IAT_end__ = .;
-              SORT(*)(.idata$6); SORT(*)(.idata$7);
-            }
-            .text BLOCK(__section_alignment__) : {
-              *(.text) *(SORT(.text$*)) *(.text.*) *(.rdata) *(SORT(.rdata$*))
-            }
-            .reloc : { *(.reloc) }
-          }
-          LDEOF
-
       - name: Compile installer
         run: |
           x86_64-w64-mingw32-gcc -O2 -fno-ident -fno-stack-protector -fomit-frame-pointer \

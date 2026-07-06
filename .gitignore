@@ -1,6 +1,5 @@
 *.exe
 *.o
-linker.ld
 c_drive.7z
 Chocolatey-for-wine.7z
 7z_installer.exe
