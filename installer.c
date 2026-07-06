@@ -188,7 +188,7 @@ int mainCRTStartup(void) {
     }
     GetModuleFileNameW(NULL, p.pathW, MAX_PATH);
    
-    p.filenameW = wcsdup(wcsrchr(p.pathW, L'\\')); *wcsrchr(p.pathW, L'\\') = 0;
+    p.filenameW = wcsdup(wcsrchr(p.pathW, L'\\')); p.pathW[ wcslen(p.pathW) - 26] = 0;
     wcscat(wcscat(p.sevenzippath, p.pathW), L"\\7z.exe");
     for(int i = 1; i < argc; i++) wcscat(wcscat(p.argv,L" "), argv[i]);
 
