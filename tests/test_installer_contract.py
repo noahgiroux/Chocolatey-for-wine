@@ -27,6 +27,13 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
         self.assertIn("GetExitCodeProcess", INSTALLER)
         self.assertIn("ERROR_SUCCESS_REBOOT_REQUIRED", INSTALLER)
 
+    def test_offline_mode_blocks_download_fallbacks_and_uses_cached_dotnet(self):
+        download = INSTALLER[INSTALLER.index("static DWORD download_file") : INSTALLER.index("static DWORD validate_canonical_choco")]
+        self.assertIn('_wgetenv(L"CFW_OFFLINE")', download)
+        self.assertLess(download.index('_wgetenv(L"CFW_OFFLINE")'), download.index("URLDownloadToFileW"))
+        self.assertIn("cached_dotnet", MAIN)
+        self.assertIn("CopyFileW(cached_dotnet", MAIN)
+
     def test_success_requires_canonical_chocolatey(self):
         self.assertIn(
             'L"%ProgramData%\\\\chocolatey\\\\bin\\\\choco.exe"',
