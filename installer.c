@@ -226,9 +226,9 @@ DWORD WINAPI cdrive_install(void *ptr){
 
 //__attribute__((externally_visible)) /* for -fwhole-program */
 int mainCRTStartup(void) {
-    wchar_t bufW[MAX_PATH] = L"", bufW1[MAX_PATH] = L"", **argv, *ptr, subdir[] = L"Microsoft.NET\\Framework64\\v4.0.30319\\SetupCache\\", *token = wcstok_s(subdir, L"\\", &ptr), rootdir[MAX_PATH];
+    wchar_t bufW[MAX_PATH] = L"", bufW1[MAX_PATH] = L"", **argv, *ptr, *module_name, subdir[] = L"Microsoft.NET\\Framework64\\v4.0.30319\\SetupCache\\", *token = wcstok_s(subdir, L"\\", &ptr), rootdir[MAX_PATH];
     int i, argc;
-    DWORD exit_code = ERROR_SUCCESS, thread_exit = ERROR_SUCCESS;
+    DWORD exit_code = ERROR_SUCCESS, thread_exit = ERROR_SUCCESS, module_path_length;
     HKEY hKey;
     HANDLE hThread[3] = {0};
     struct paths p = {0};
@@ -257,9 +257,16 @@ int mainCRTStartup(void) {
     } else {
         CreateDirectoryW(p.setupcache, 0);
     }
-    GetModuleFileNameW(NULL, p.pathW, MAX_PATH);
-   
-    p.filenameW = wcsdup(wcsrchr(p.pathW, L'\\')); p.pathW[ wcslen(p.pathW) - 26] = 0;
+    module_path_length = GetModuleFileNameW(NULL, p.pathW, MAX_PATH);
+    if(module_path_length == 0) ExitProcess(GetLastError());
+    if(module_path_length >= MAX_PATH) ExitProcess(ERROR_INSUFFICIENT_BUFFER);
+
+    module_name = wcsrchr(p.pathW, L'\\');
+    if(!module_name) ExitProcess(ERROR_BAD_PATHNAME);
+    if(wcslen(module_name) <= 22) ExitProcess(ERROR_BAD_FORMAT);
+    p.filenameW = wcsdup(module_name);
+    if(!p.filenameW) ExitProcess(ERROR_NOT_ENOUGH_MEMORY);
+    *module_name = 0;
     wcscat(wcscat(p.sevenzippath, p.pathW), L"\\7z.exe");
     for(int i = 1; i < argc; i++) {
         if(_wcsicmp(argv[i], L"/s") == 0 && wcsstr(p.argv, L" /s") == NULL)
