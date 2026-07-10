@@ -43,6 +43,15 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
         self.assertIn("- 'fix/**'", workflow)
         self.assertIn("python3 -m unittest discover -s tests", workflow)
 
+    def test_canonical_upstream_changes_are_monitored(self):
+        workflow_path = ROOT / ".github/workflows/upstream-watch.yml"
+        self.assertTrue(workflow_path.is_file())
+        workflow = workflow_path.read_text(encoding="utf-8")
+        self.assertIn("schedule:", workflow)
+        self.assertIn("PietJankbal/Chocolatey-for-wine.git", workflow)
+        self.assertIn("HEAD..canonical-upstream/main", workflow)
+        self.assertNotIn("git merge", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

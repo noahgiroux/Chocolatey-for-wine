@@ -1,0 +1,40 @@
+name: Watch canonical upstream
+
+on:
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check PietJankbal upstream
+        run: |
+          git remote add canonical-upstream https://github.com/PietJankbal/Chocolatey-for-wine.git
+          git fetch --no-tags canonical-upstream main
+          unseen="$(git rev-list --count HEAD..canonical-upstream/main)"
+          {
+            echo '## Canonical upstream status'
+            echo
+            echo "Unseen commits: $unseen"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$unseen" -gt 0 ]; then
+            {
+              echo
+              echo '```text'
+              git log --oneline --no-decorate HEAD..canonical-upstream/main
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=Canonical upstream changed::$unseen PietJankbal commit(s) need review"
+            exit 1
+          fi
+          echo 'No unseen canonical upstream commits.' >> "$GITHUB_STEP_SUMMARY"
