@@ -53,6 +53,18 @@ static void log_stage(const char *message) {
         WriteFile(output, message, (DWORD)strlen(message), &written, NULL);
 }
 
+static BOOL append_wide(wchar_t *destination, size_t capacity, const wchar_t *source) {
+    size_t destination_length = wcslen(destination);
+    size_t source_length = wcslen(source);
+    size_t i;
+
+    if(destination_length >= capacity || source_length >= capacity - destination_length)
+        return FALSE;
+    for(i = 0; i <= source_length; i++)
+        destination[destination_length + i] = source[i];
+    return TRUE;
+}
+
 static DWORD run_process(LPCWSTR application, LPWSTR command_line, DWORD creation_flags) {
     STARTUPINFOW startup = {0};
     PROCESS_INFORMATION process = {0};
@@ -136,14 +148,16 @@ DWORD WINAPI chocolatey_install(void *ptr){
 
 DWORD WINAPI pscore_install(void *ptr){
     wchar_t cmdlineW[1024]=L"", bufW[MAX_PATH] = L"", bufW1[MAX_PATH] = L"", pwsh_pathW[MAX_PATH];
-    DWORD exit_code;
-    int i, command_length;
+    DWORD exit_code, expanded_path_length;
+    int i;
     HKEY hKey;
     struct paths *p = (struct paths*)ptr;
 
     log_stage("[cfw] stage=powershell-start\n");
 
-    ExpandEnvironmentStringsW(L"%ProgramFiles%\\Powershell\\7\\pwsh.exe", pwsh_pathW, MAX_PATH + 1);
+    expanded_path_length = ExpandEnvironmentStringsW(L"%ProgramFiles%\\Powershell\\7\\pwsh.exe", pwsh_pathW, MAX_PATH);
+    if(expanded_path_length == 0) return GetLastError();
+    if(expanded_path_length > MAX_PATH) return ERROR_INSUFFICIENT_BUFFER;
 
     /* Download and install PowerShell before running the finalizer. */
     WCHAR versionW[] = L".....", msiW[MAX_PATH]=L"", downloadW[MAX_PATH]=L"";
@@ -182,17 +196,16 @@ DWORD WINAPI pscore_install(void *ptr){
     RegCloseKey(hKey);
     if(exit_code != ERROR_SUCCESS) return exit_code;
 
-    command_length = swprintf(
-        cmdlineW,
-        sizeof(cmdlineW) / sizeof(cmdlineW[0]),
-        L"\"%ls\" -NoLogo -NonInteractive -File \"%ls\\choc_install.ps1\" \"%ls\"%ls",
-        pwsh_pathW,
-        p->pathW,
-        p->pathW,
-        p->argv
-    );
-    if(command_length < 0 || command_length >= (int)(sizeof(cmdlineW) / sizeof(cmdlineW[0])))
-        return ERROR_INSUFFICIENT_BUFFER;
+    if(
+        !append_wide(cmdlineW, sizeof(cmdlineW) / sizeof(cmdlineW[0]), L"\"") ||
+        !append_wide(cmdlineW, sizeof(cmdlineW) / sizeof(cmdlineW[0]), pwsh_pathW) ||
+        !append_wide(cmdlineW, sizeof(cmdlineW) / sizeof(cmdlineW[0]), L"\" -NoLogo -NonInteractive -File \"") ||
+        !append_wide(cmdlineW, sizeof(cmdlineW) / sizeof(cmdlineW[0]), p->pathW) ||
+        !append_wide(cmdlineW, sizeof(cmdlineW) / sizeof(cmdlineW[0]), L"\\choc_install.ps1\" \"") ||
+        !append_wide(cmdlineW, sizeof(cmdlineW) / sizeof(cmdlineW[0]), p->pathW) ||
+        !append_wide(cmdlineW, sizeof(cmdlineW) / sizeof(cmdlineW[0]), L"\"") ||
+        !append_wide(cmdlineW, sizeof(cmdlineW) / sizeof(cmdlineW[0]), p->argv)
+    ) return ERROR_INSUFFICIENT_BUFFER;
     log_stage("[cfw] stage=finalizer-start\n");
     exit_code = run_process(pwsh_pathW, cmdlineW, 0);
     if(install_succeeded(exit_code)) log_stage("[cfw] stage=finalizer-complete\n");

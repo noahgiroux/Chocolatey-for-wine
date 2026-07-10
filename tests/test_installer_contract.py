@@ -60,8 +60,12 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
 
     def test_powershell_finalizer_command_has_argv0_and_explicit_file_mode(self):
         pscore = INSTALLER[INSTALLER.index("DWORD WINAPI pscore_install") : INSTALLER.index("DWORD WINAPI cdrive_install")]
-        self.assertIn("swprintf(", pscore)
-        self.assertIn('L"\\\"%ls\\\" -NoLogo -NonInteractive -File \\\"%ls\\\\choc_install.ps1\\\" \\\"%ls\\\"%ls"', pscore)
+        self.assertIn("append_wide(", pscore)
+        self.assertIn("expanded_path_length", pscore)
+        self.assertIn("expanded_path_length > MAX_PATH", pscore)
+        self.assertNotIn("swprintf(", pscore)
+        self.assertIn('L"\\\" -NoLogo -NonInteractive -File \\\""', pscore)
+        self.assertIn('L"\\\\choc_install.ps1\\\" \\\""', pscore)
         self.assertIn("ERROR_INSUFFICIENT_BUFFER", pscore)
         self.assertIn('_wcsicmp(argv[i], L"/s")', MAIN)
         self.assertIn('_wcsicmp(argv[i], L"/q")', MAIN)
