@@ -63,7 +63,9 @@ static DWORD run_process(LPCWSTR application, LPWSTR command_line, DWORD creatio
 }
 
 static DWORD download_file(LPCWSTR source, LPCWSTR destination) {
-    HRESULT result = URLDownloadToFileW(NULL, source, destination, 0, NULL);
+    HRESULT result;
+    if(_wgetenv(L"CFW_OFFLINE")) return ERROR_FILE_NOT_FOUND;
+    result = URLDownloadToFileW(NULL, source, destination, 0, NULL);
     return SUCCEEDED(result) ? ERROR_SUCCESS : (DWORD)result;
 }
 
@@ -221,9 +223,17 @@ int mainCRTStartup(void) {
     wchar_t url[] = L"https://download.visualstudio.microsoft.com/download/pr/7afca223-55d2-470a-8edc-6a1739ae3252/abd170b4b0ec15ad0222a809b761a036/ndp48-x86-x64-allos-enu.exe";
 
     if(GetFileAttributesW(wcscat(wcscat(bufW1, p.cache_dir), L"\\v4.8.03761\\netfx_Full_x64.msi")) == INVALID_FILE_ATTRIBUTES) {
-        wcscat(wcscat(bufW, p.setupcache), wcsrchr(url, L'/') + 1);
-        exit_code = download_file(url, bufW);
-        if(exit_code != ERROR_SUCCESS) ExitProcess(exit_code);
+        wchar_t cached_dotnet[MAX_PATH] = L"";
+        wchar_t *dotnet_name = wcsrchr(url, L'/') + 1;
+        wcscat(wcscat(cached_dotnet, p.cache_dir), dotnet_name);
+        wcscat(wcscat(bufW, p.setupcache), dotnet_name);
+        if(GetFileAttributesW(cached_dotnet) != INVALID_FILE_ATTRIBUTES) {
+            if(!CopyFileW(cached_dotnet, bufW, FALSE)) ExitProcess(GetLastError());
+        }
+        else {
+            exit_code = download_file(url, bufW);
+            if(exit_code != ERROR_SUCCESS) ExitProcess(exit_code);
+        }
     }
 
     /* Prerequisites may run concurrently, but finalization must wait for all. */
