@@ -40,127 +40,153 @@ struct paths {
              L"https://github.com/Maximus5/ConEmu/releases/download/v23.07.24/ConEmuPack.230724.7z",
              L"https://globalcdn.nuget.org/packages/sevenzipextractor.1.0.19.nupkg",
              L"https://catalog.s.download.windowsupdate.com/msdownload/update/software/updt/2009/11/windowsserver2003-kb968930-x64-eng_8ba702aa016e4c5aed581814647f4d55635eff5c.exe"};
+
+static BOOL install_succeeded(DWORD exit_code) {
+    return exit_code == ERROR_SUCCESS || exit_code == ERROR_SUCCESS_REBOOT_REQUIRED;
+}
+
+static DWORD run_process(LPCWSTR application, LPWSTR command_line, DWORD creation_flags) {
+    STARTUPINFOW startup = {0};
+    PROCESS_INFORMATION process = {0};
+    DWORD exit_code = ERROR_GEN_FAILURE;
+
+    startup.cb = sizeof(startup);
+    if(!CreateProcessW(application, command_line, 0, 0, 0, creation_flags, 0, 0, &startup, &process))
+        return GetLastError();
+    if(WaitForSingleObject(process.hProcess, INFINITE) != WAIT_OBJECT_0)
+        exit_code = ERROR_GEN_FAILURE;
+    else if(!GetExitCodeProcess(process.hProcess, &exit_code))
+        exit_code = GetLastError();
+    CloseHandle(process.hProcess);
+    CloseHandle(process.hThread);
+    return exit_code;
+}
+
+static DWORD download_file(LPCWSTR source, LPCWSTR destination) {
+    HRESULT result = URLDownloadToFileW(NULL, source, destination, 0, NULL);
+    return SUCCEEDED(result) ? ERROR_SUCCESS : (DWORD)result;
+}
+
+static DWORD validate_canonical_choco(void) {
+    wchar_t canonical_choco[MAX_PATH] = L"";
+    if(!ExpandEnvironmentStringsW(L"%ProgramData%\\chocolatey\\bin\\choco.exe", canonical_choco, MAX_PATH))
+        return GetLastError();
+    return GetFileAttributesW(canonical_choco) == INVALID_FILE_ATTRIBUTES
+        ? ERROR_FILE_NOT_FOUND
+        : ERROR_SUCCESS;
+}
  
 DWORD WINAPI net48_install(void *ptr){
-
     wchar_t bufW[525]=L"", bufW1[MAX_PATH]=L"";
+    DWORD exit_code;
     struct paths *p = (struct paths*)ptr;
-    STARTUPINFOW si = {0}, si1 = {0};
-    PROCESS_INFORMATION pi = {0}, pi1= {0};
 
-    if(GetFileAttributesW( wcscat(wcscat(bufW1, p->cache_dir), L"v4.8.03761\\netfx_Full_x64.msi")) != INVALID_FILE_ATTRIBUTES)
+    if(GetFileAttributesW(wcscat(wcscat(bufW1, p->cache_dir), L"v4.8.03761\\netfx_Full_x64.msi")) != INVALID_FILE_ATTRIBUTES)
         wcscat(wcscat(wcscat(bufW, L"msiexec.exe /i "), bufW1), L" MSIFASTINSTALL=2 DISABLEROLLBACK=1 /QN");
     else {
-        wcscat(wcscat(wcscat(wcscat(wcscat(wcscat(bufW,p->sevenzippath) ,L" x -x!\"*.cab\" -x!\"netfx_c*\" -x!\"netfx_e*\" -x!\"NetFx4*\" -ms190M "), p->setupcache),L"\\ndp48-x86-x64-allos-enu.exe -o"), p->setupcache), L"\\v4.8.03761" );
- 
-        CreateProcessW(0, bufW, 0, 0, 0, 0, 0, 0, &si, &pi);
-        WaitForSingleObject(pi.hProcess, INFINITE); /*GetExitCodeProcess(pi.hProcess, &exitcode);*/ CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
+        wcscat(wcscat(wcscat(wcscat(wcscat(wcscat(bufW,p->sevenzippath), L" x -x!\"*.cab\" -x!\"netfx_c*\" -x!\"netfx_e*\" -x!\"NetFx4*\" -ms190M "), p->setupcache), L"\\ndp48-x86-x64-allos-enu.exe -o"), p->setupcache), L"\\v4.8.03761");
+        exit_code = run_process(NULL, bufW, 0);
+        if(!install_succeeded(exit_code)) return exit_code;
 
         bufW[0]=0;
         wcscat(wcscat(wcscat(bufW, L"msiexec.exe /i "), p->setupcache), L"\\v4.8.03761\\netfx_Full_x64.msi MSIFASTINSTALL=2 DISABLEROLLBACK=1 /QN");
     }
 
-    CreateProcessW(0, bufW, 0, 0, 0, REALTIME_PRIORITY_CLASS, 0, 0, &si1, &pi1);
-    WaitForSingleObject(pi1.hProcess, INFINITE); CloseHandle(pi1.hProcess); CloseHandle(pi1.hThread);
-
-    return 0;
+    exit_code = run_process(NULL, bufW, REALTIME_PRIORITY_CLASS);
+    return install_succeeded(exit_code) ? ERROR_SUCCESS : exit_code;
 }
 
 DWORD WINAPI chocolatey_install(void *ptr){
-
     wchar_t dest[MAX_PATH], bufW[MAX_PATH]=L"", bufW1[525]=L"", url[] = L"https://packages.chocolatey.org/chocolatey.2.6.0.nupkg";
+    DWORD exit_code;
     struct paths *p = (struct paths*)ptr;
-    STARTUPINFOW si = {0};
-    PROCESS_INFORMATION pi = {0};
 
     ExpandEnvironmentStringsW(L"%ProgramData%", dest, MAX_PATH + 1);
 
-    if(GetFileAttributesW( wcscat(wcscat(bufW1, p->cache_dir), wcsrchr(url, L'/') + 1)) == INVALID_FILE_ATTRIBUTES) {
-        URLDownloadToFileW(NULL, url, wcscat(wcscat(bufW, p->setupcache), wcsrchr(url, L'/') + 1), 0, NULL);
+    if(GetFileAttributesW(wcscat(wcscat(bufW1, p->cache_dir), wcsrchr(url, L'/') + 1)) == INVALID_FILE_ATTRIBUTES) {
+        bufW1[0] = 0;
+        wcscat(wcscat(bufW, p->setupcache), wcsrchr(url, L'/') + 1);
+        exit_code = download_file(url, bufW);
+        if(exit_code != ERROR_SUCCESS) return exit_code;
     }
     else {
         wcscat(wcscat(bufW, p->cache_dir), wcsrchr(url, L'/') + 1);
     }
-    
-    bufW1[0] = 0;
-    wcscat(wcscat(wcscat(wcscat( wcscat(bufW1, p->sevenzippath) ,L" x "), bufW), L" tools/chocolateyInstall/* -o"), dest);
-    
-    CreateProcessW(0, bufW1, 0, 0, 0, 0, 0, 0, &si, &pi);
-    WaitForSingleObject(pi.hProcess, INFINITE); /*GetExitCodeProcess(pi.hProcess, &exitcode);*/ CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
 
-    return 0;
+    bufW1[0] = 0;
+    wcscat(wcscat(wcscat(wcscat(wcscat(bufW1, p->sevenzippath), L" x "), bufW), L" tools/chocolateyInstall/* -o"), dest);
+    exit_code = run_process(NULL, bufW1, 0);
+    return install_succeeded(exit_code) ? ERROR_SUCCESS : exit_code;
 }
 
 DWORD WINAPI pscore_install(void *ptr){
-
     wchar_t cmdlineW[MAX_PATH]=L"", bufW[MAX_PATH] = L"", bufW1[MAX_PATH] = L"", pwsh_pathW[MAX_PATH];
+    DWORD exit_code;
     int i;
-    STARTUPINFOW si = {0}, si1 = {0};
-    PROCESS_INFORMATION pi = {0}, pi1 = {0};
     HKEY hKey;
     struct paths *p = (struct paths*)ptr;
-    
+
     ExpandEnvironmentStringsW(L"%ProgramFiles%\\Powershell\\7\\pwsh.exe", pwsh_pathW, MAX_PATH + 1);
 
-    /* Download and Install */
+    /* Download and install PowerShell before running the finalizer. */
     WCHAR versionW[] = L".....", msiW[MAX_PATH]=L"", downloadW[MAX_PATH]=L"";
- 
     versionW[0] = p->filenameW[20]; versionW[2] = p->filenameW[21]; versionW[4] = p->filenameW[22];
     wcscat(wcscat(msiW, L"PowerShell-"), versionW);
     wcscat(msiW, L"-win-x64.msi");
-        
-    wchar_t *ps_url = wcscat(wcscat(wcscat(wcscat(downloadW, L"https://github.com/PowerShell/PowerShell/releases/download/v"), versionW), L"/"), msiW);
-    
-    if(GetFileAttributesW( wcscat(wcscat(bufW1, p->cache_dir), wcsrchr(ps_url, L'/') + 1)) == INVALID_FILE_ATTRIBUTES) {
-        bufW1[0] = 0;
-        URLDownloadToFileW(NULL, ps_url, wcscat(wcscat(bufW1, p->setupcache), wcsrchr(ps_url, L'/') + 1) , 0, NULL);
-    }
-    
-    CreateProcessW(0, wcscat(  wcscat( wcscat(bufW, L"msiexec.exe /i "), bufW1), L" DISABLE_TELEMETRY=1 ENABLE_PSREMOTING=1 REGISTER_MANIFEST=1 MSIFASTINSTALL=2 DISABLEROLLBACK=1 MSIDISABLEEEUI=1 /QN"), 0, 0, 0, REALTIME_PRIORITY_CLASS, 0, 0, &si, &pi);
 
-    for(i=0 ; i<6; i++) {
-		bufW[0]=0;
-        if(GetFileAttributesW( wcscat(wcscat(bufW, p->cache_dir), wcsrchr(url[i], L'/') + 1)) == INVALID_FILE_ATTRIBUTES) {
+    wchar_t *ps_url = wcscat(wcscat(wcscat(wcscat(downloadW, L"https://github.com/PowerShell/PowerShell/releases/download/v"), versionW), L"/"), msiW);
+    if(GetFileAttributesW(wcscat(wcscat(bufW1, p->cache_dir), wcsrchr(ps_url, L'/') + 1)) == INVALID_FILE_ATTRIBUTES) {
+        bufW1[0] = 0;
+        wcscat(wcscat(bufW1, p->setupcache), wcsrchr(ps_url, L'/') + 1);
+        exit_code = download_file(ps_url, bufW1);
+        if(exit_code != ERROR_SUCCESS) return exit_code;
+    }
+
+    wcscat(wcscat(wcscat(bufW, L"msiexec.exe /i "), bufW1), L" DISABLE_TELEMETRY=1 ENABLE_PSREMOTING=1 REGISTER_MANIFEST=1 MSIFASTINSTALL=2 DISABLEROLLBACK=1 MSIDISABLEEEUI=1 /QN");
+    exit_code = run_process(NULL, bufW, REALTIME_PRIORITY_CLASS);
+    if(!install_succeeded(exit_code)) return exit_code;
+
+    for(i=0; i<6; i++) {
+        bufW[0]=0;
+        if(GetFileAttributesW(wcscat(wcscat(bufW, p->cache_dir), wcsrchr(url[i], L'/') + 1)) == INVALID_FILE_ATTRIBUTES) {
             bufW[0]=0;
-            URLDownloadToFileW(NULL, url[i], wcscat(wcscat(bufW,p->setupcache),  wcsrchr(url[i],L'/') + 1) , 0, NULL);
+            wcscat(wcscat(bufW, p->setupcache), wcsrchr(url[i], L'/') + 1);
+            exit_code = download_file(url[i], bufW);
+            if(exit_code != ERROR_SUCCESS) return exit_code;
         }
     }
-    
+
     WCHAR webview[] = L"--disable-dwm-composition --disable-gpu-sandbox --disable-d3d11  --disable-sandbox --use-angle=d3d9 --disable-gpu";
-    RegCreateKeyExW(HKEY_CURRENT_USER, L"Environment", 0, NULL, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, NULL, &hKey, NULL);
-    RegSetValueExW(hKey, L"PS7\0", 0, REG_SZ, (BYTE*) pwsh_pathW, sizeof(WCHAR)*wcslen(pwsh_pathW)+1); RegCloseKey(hKey);
-    RegCreateKeyExW(HKEY_CURRENT_USER, L"Environment", 0, NULL, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, NULL, &hKey, NULL);
-    RegSetValueExW(hKey, L"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS\0", 0, REG_SZ, (BYTE*) webview, sizeof(WCHAR)*wcslen(webview)+1); RegCloseKey(hKey);
+    if(RegCreateKeyExW(HKEY_CURRENT_USER, L"Environment", 0, NULL, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, NULL, &hKey, NULL) != ERROR_SUCCESS)
+        return ERROR_CANTOPEN;
+    exit_code = RegSetValueExW(hKey, L"PS7", 0, REG_SZ, (BYTE*)pwsh_pathW, sizeof(WCHAR)*wcslen(pwsh_pathW)+1);
+    if(exit_code == ERROR_SUCCESS)
+        exit_code = RegSetValueExW(hKey, L"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", 0, REG_SZ, (BYTE*)webview, sizeof(WCHAR)*wcslen(webview)+1);
+    RegCloseKey(hKey);
+    if(exit_code != ERROR_SUCCESS) return exit_code;
 
-    WaitForSingleObject(pi.hProcess, INFINITE); CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
-    
-    wcscat(wcscat(wcscat(wcscat( wcscat( wcscat(cmdlineW, L" -f ") , p->pathW ), L"\\"), L"choc_install.ps1 "), p->pathW), p->argv);
-
-    CreateProcessW(pwsh_pathW, cmdlineW, 0, 0, 0, 0, 0, 0, &si1, &pi1);
-    WaitForSingleObject(pi1.hProcess, INFINITE); /*GetExitCodeProcess(pi1.hProcess, &exitcode);*/ CloseHandle(pi1.hProcess); CloseHandle(pi1.hThread);
-
-    return 0;
+    wcscat(wcscat(wcscat(wcscat(wcscat(wcscat(cmdlineW, L" -f "), p->pathW), L"\\"), L"choc_install.ps1 "), p->pathW), p->argv);
+    exit_code = run_process(pwsh_pathW, cmdlineW, 0);
+    return install_succeeded(exit_code) ? ERROR_SUCCESS : exit_code;
 }
 
 DWORD WINAPI cdrive_install(void *ptr){
-
     wchar_t bufW[MAX_PATH]=L"";
+    DWORD exit_code;
     struct paths *p = (struct paths*)ptr;
-    STARTUPINFOW si = {0};
-    PROCESS_INFORMATION pi = {0};
-    wcscat(wcscat(wcscat(wcscat(bufW, p->sevenzippath), L" x -spf -aot "), p->pathW), L"\\c_drive.7z" );
+    wcscat(wcscat(wcscat(wcscat(bufW, p->sevenzippath), L" x -spf -aot "), p->pathW), L"\\c_drive.7z");
 
-    CreateProcessW(0, bufW, 0, 0, 0, 0, 0, 0, &si, &pi);
-    WaitForSingleObject(pi.hProcess, INFINITE); /*GetExitCodeProcess(pi.hProcess, &exitcode);*/ CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
-
-    return 0;
+    exit_code = run_process(NULL, bufW, 0);
+    return install_succeeded(exit_code) ? ERROR_SUCCESS : exit_code;
 }
 
 //__attribute__((externally_visible)) /* for -fwhole-program */
 int mainCRTStartup(void) {
-    wchar_t bufW[MAX_PATH] = L"",bufW1[MAX_PATH] = L"",   pwsh_pathW[MAX_PATH], **argv, *ptr , subdir[] = L"Microsoft.NET\\Framework64\\v4.0.30319\\SetupCache\\", *token = wcstok_s( subdir, L"\\", &ptr), rootdir[MAX_PATH];
-    int i = 0, argc;
-    HKEY hKey; HANDLE hThread[4];
+    wchar_t bufW[MAX_PATH] = L"", bufW1[MAX_PATH] = L"", **argv, *ptr, subdir[] = L"Microsoft.NET\\Framework64\\v4.0.30319\\SetupCache\\", *token = wcstok_s(subdir, L"\\", &ptr), rootdir[MAX_PATH];
+    int i, argc;
+    DWORD exit_code = ERROR_SUCCESS, thread_exit = ERROR_SUCCESS;
+    HKEY hKey;
+    HANDLE hThread[3] = {0};
     struct paths p = {0};
 
     argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -170,13 +196,13 @@ int mainCRTStartup(void) {
 
     wchar_t* path = 0;
     if(_wgetenv(L"CFW_CACHE")) wcscat( wcscat( p.cache_dir, _wgetenv(L"CFW_CACHE") ), L"\\choc_install_files\\" );
-    else { 
+    else {
         HRESULT hr = SHGetKnownFolderPath(&FOLDERID_Documents, 0, 0, &path);
-        wcscat( wcscat( p.cache_dir, path ), L"\\Chocolatey-for-wine\\choc_install_files\\" );
+        if(FAILED(hr)) ExitProcess((DWORD)hr);
+        wcscat(wcscat(p.cache_dir, path), L"\\Chocolatey-for-wine\\choc_install_files\\");
         if(path) { CoTaskMemFree(path); }
     }
-    
-    ExpandEnvironmentStringsW(L"%ProgramFiles%\\Powershell\\7\\pwsh.exe", pwsh_pathW, MAX_PATH + 1);
+
     ExpandEnvironmentStringsW(L"%SystemRoot%\\Microsoft.NET\\Framework64\\v4.0.30319\\SetupCache\\", p.setupcache, MAX_PATH + 1);
     ExpandEnvironmentStringsW(L"%SystemRoot%\\", rootdir, MAX_PATH + 1);
     
@@ -194,16 +220,42 @@ int mainCRTStartup(void) {
 
     wchar_t url[] = L"https://download.visualstudio.microsoft.com/download/pr/7afca223-55d2-470a-8edc-6a1739ae3252/abd170b4b0ec15ad0222a809b761a036/ndp48-x86-x64-allos-enu.exe";
 
-    if(GetFileAttributesW( wcscat(wcscat(bufW1, p.cache_dir), L"\\v4.8.03761\\netfx_Full_x64.msi")) == INVALID_FILE_ATTRIBUTES)
-       URLDownloadToFileW(NULL, url, wcscat(wcscat(bufW, p.setupcache), wcsrchr(url, L'/') + 1), 0, NULL);
-    /* https://aljensencprogramming.wordpress.com/tag/createthread/ */
-    hThread[3] = CreateThread(NULL, 0, cdrive_install, &p, 0, 0);   
-    hThread[0] = CreateThread(NULL, 0, net48_install, &p, 0, 0);   
-    hThread[2] = CreateThread(NULL, 0, pscore_install, &p, 0, 0);  
+    if(GetFileAttributesW(wcscat(wcscat(bufW1, p.cache_dir), L"\\v4.8.03761\\netfx_Full_x64.msi")) == INVALID_FILE_ATTRIBUTES) {
+        wcscat(wcscat(bufW, p.setupcache), wcsrchr(url, L'/') + 1);
+        exit_code = download_file(url, bufW);
+        if(exit_code != ERROR_SUCCESS) ExitProcess(exit_code);
+    }
+
+    /* Prerequisites may run concurrently, but finalization must wait for all. */
+    hThread[0] = CreateThread(NULL, 0, net48_install, &p, 0, 0);
     hThread[1] = CreateThread(NULL, 0, chocolatey_install, &p, 0, 0);
-    SetThreadPriority(hThread[0], 15);
-    WaitForMultipleObjects(4, hThread, TRUE, INFINITE);
-    for (int i = 0; i < 4; i++)  CloseHandle(hThread[i]); 
-    
-    ExitProcess(0);
+    hThread[2] = CreateThread(NULL, 0, cdrive_install, &p, 0, 0);
+    for(i=0; i<3; i++) {
+        if(!hThread[i]) {
+            exit_code = GetLastError();
+            for(int j=0; j<3; j++) {
+                if(hThread[j]) {
+                    WaitForSingleObject(hThread[j], INFINITE);
+                    CloseHandle(hThread[j]);
+                }
+            }
+            ExitProcess(exit_code);
+        }
+    }
+    SetThreadPriority(hThread[0], THREAD_PRIORITY_TIME_CRITICAL);
+    if(WaitForMultipleObjects(3, hThread, TRUE, INFINITE) != WAIT_OBJECT_0)
+        exit_code = ERROR_GEN_FAILURE;
+    for(i=0; i<3; i++) {
+        if(!GetExitCodeThread(hThread[i], &thread_exit) && exit_code == ERROR_SUCCESS)
+            exit_code = GetLastError();
+        else if(thread_exit != ERROR_SUCCESS && exit_code == ERROR_SUCCESS)
+            exit_code = thread_exit;
+        CloseHandle(hThread[i]);
+    }
+
+    if(exit_code == ERROR_SUCCESS)
+        exit_code = pscore_install(&p);
+    if(exit_code == ERROR_SUCCESS)
+        exit_code = validate_canonical_choco();
+    ExitProcess(exit_code);
 }

@@ -1,3 +1,5 @@
+$ErrorActionPreference = 'Stop'
+
 ################################################################################################################### 
 #                                                                                                                 #
 #  Miscellaneous registry keys, a few from mscoree manifest so we can skip dotnet40 install                       #
