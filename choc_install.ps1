@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+Write-Output '[cfw] stage=finalizer-script-entry'
 
 ################################################################################################################### 
 #                                                                                                                 #

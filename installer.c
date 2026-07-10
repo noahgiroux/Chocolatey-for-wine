@@ -32,7 +32,7 @@ struct paths {
     wchar_t *filenameW;
     wchar_t sevenzippath[MAX_PATH];
     wchar_t cache_dir[MAX_PATH];
-    wchar_t argv[MAX_PATH];
+    wchar_t argv[32];
 };
 
     /* __attribute__((section(".text")))   __attribute__((aligned(8))) */ static const WCHAR url[6][165] = {L"http://download.windowsupdate.com/msdownload/update/software/crup/2010/06/windows6.1-kb958488-v6001-x64_a137e4f328f01146dfa75d7b5a576090dee948dc.msu",
@@ -135,9 +135,9 @@ DWORD WINAPI chocolatey_install(void *ptr){
 }
 
 DWORD WINAPI pscore_install(void *ptr){
-    wchar_t cmdlineW[MAX_PATH]=L"", bufW[MAX_PATH] = L"", bufW1[MAX_PATH] = L"", pwsh_pathW[MAX_PATH];
+    wchar_t cmdlineW[1024]=L"", bufW[MAX_PATH] = L"", bufW1[MAX_PATH] = L"", pwsh_pathW[MAX_PATH];
     DWORD exit_code;
-    int i;
+    int i, command_length;
     HKEY hKey;
     struct paths *p = (struct paths*)ptr;
 
@@ -182,7 +182,17 @@ DWORD WINAPI pscore_install(void *ptr){
     RegCloseKey(hKey);
     if(exit_code != ERROR_SUCCESS) return exit_code;
 
-    wcscat(wcscat(wcscat(wcscat(wcscat(wcscat(cmdlineW, L" -f "), p->pathW), L"\\"), L"choc_install.ps1 "), p->pathW), p->argv);
+    command_length = swprintf(
+        cmdlineW,
+        sizeof(cmdlineW) / sizeof(cmdlineW[0]),
+        L"\"%ls\" -NoLogo -NonInteractive -File \"%ls\\choc_install.ps1\" \"%ls\"%ls",
+        pwsh_pathW,
+        p->pathW,
+        p->pathW,
+        p->argv
+    );
+    if(command_length < 0 || command_length >= (int)(sizeof(cmdlineW) / sizeof(cmdlineW[0])))
+        return ERROR_INSUFFICIENT_BUFFER;
     log_stage("[cfw] stage=finalizer-start\n");
     exit_code = run_process(pwsh_pathW, cmdlineW, 0);
     if(install_succeeded(exit_code)) log_stage("[cfw] stage=finalizer-complete\n");
@@ -238,7 +248,12 @@ int mainCRTStartup(void) {
    
     p.filenameW = wcsdup(wcsrchr(p.pathW, L'\\')); p.pathW[ wcslen(p.pathW) - 26] = 0;
     wcscat(wcscat(p.sevenzippath, p.pathW), L"\\7z.exe");
-    for(int i = 1; i < argc; i++) wcscat(wcscat(p.argv,L" "), argv[i]);
+    for(int i = 1; i < argc; i++) {
+        if(_wcsicmp(argv[i], L"/s") == 0 && wcsstr(p.argv, L" /s") == NULL)
+            wcscat(p.argv, L" /s");
+        else if(_wcsicmp(argv[i], L"/q") == 0 && wcsstr(p.argv, L" /q") == NULL)
+            wcscat(p.argv, L" /q");
+    }
 
     wchar_t url[] = L"https://download.visualstudio.microsoft.com/download/pr/7afca223-55d2-470a-8edc-6a1739ae3252/abd170b4b0ec15ad0222a809b761a036/ndp48-x86-x64-allos-enu.exe";
 
