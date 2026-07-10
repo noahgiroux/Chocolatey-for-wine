@@ -20,6 +20,7 @@
  */
  
 #include <stdio.h>
+#include <string.h>
 #include <windows.h>
 #include <winternl.h>
 #include <shlobj.h>
@@ -43,6 +44,13 @@ struct paths {
 
 static BOOL install_succeeded(DWORD exit_code) {
     return exit_code == ERROR_SUCCESS || exit_code == ERROR_SUCCESS_REBOOT_REQUIRED;
+}
+
+static void log_stage(const char *message) {
+    DWORD written = 0;
+    HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    if(output != NULL && output != INVALID_HANDLE_VALUE)
+        WriteFile(output, message, (DWORD)strlen(message), &written, NULL);
 }
 
 static DWORD run_process(LPCWSTR application, LPWSTR command_line, DWORD creation_flags) {
@@ -83,6 +91,7 @@ DWORD WINAPI net48_install(void *ptr){
     DWORD exit_code;
     struct paths *p = (struct paths*)ptr;
 
+    log_stage("[cfw] stage=net48-start\n");
     if(GetFileAttributesW(wcscat(wcscat(bufW1, p->cache_dir), L"v4.8.03761\\netfx_Full_x64.msi")) != INVALID_FILE_ATTRIBUTES)
         wcscat(wcscat(wcscat(bufW, L"msiexec.exe /i "), bufW1), L" MSIFASTINSTALL=2 DISABLEROLLBACK=1 /QN");
     else {
@@ -95,6 +104,7 @@ DWORD WINAPI net48_install(void *ptr){
     }
 
     exit_code = run_process(NULL, bufW, REALTIME_PRIORITY_CLASS);
+    if(install_succeeded(exit_code)) log_stage("[cfw] stage=net48-complete\n");
     return install_succeeded(exit_code) ? ERROR_SUCCESS : exit_code;
 }
 
@@ -102,6 +112,8 @@ DWORD WINAPI chocolatey_install(void *ptr){
     wchar_t dest[MAX_PATH], bufW[MAX_PATH]=L"", bufW1[525]=L"", url[] = L"https://packages.chocolatey.org/chocolatey.2.6.0.nupkg";
     DWORD exit_code;
     struct paths *p = (struct paths*)ptr;
+
+    log_stage("[cfw] stage=chocolatey-payload-start\n");
 
     ExpandEnvironmentStringsW(L"%ProgramData%", dest, MAX_PATH + 1);
 
@@ -118,6 +130,7 @@ DWORD WINAPI chocolatey_install(void *ptr){
     bufW1[0] = 0;
     wcscat(wcscat(wcscat(wcscat(wcscat(bufW1, p->sevenzippath), L" x "), bufW), L" tools/chocolateyInstall/* -o"), dest);
     exit_code = run_process(NULL, bufW1, 0);
+    if(install_succeeded(exit_code)) log_stage("[cfw] stage=chocolatey-payload-complete\n");
     return install_succeeded(exit_code) ? ERROR_SUCCESS : exit_code;
 }
 
@@ -127,6 +140,8 @@ DWORD WINAPI pscore_install(void *ptr){
     int i;
     HKEY hKey;
     struct paths *p = (struct paths*)ptr;
+
+    log_stage("[cfw] stage=powershell-start\n");
 
     ExpandEnvironmentStringsW(L"%ProgramFiles%\\Powershell\\7\\pwsh.exe", pwsh_pathW, MAX_PATH + 1);
 
@@ -168,7 +183,9 @@ DWORD WINAPI pscore_install(void *ptr){
     if(exit_code != ERROR_SUCCESS) return exit_code;
 
     wcscat(wcscat(wcscat(wcscat(wcscat(wcscat(cmdlineW, L" -f "), p->pathW), L"\\"), L"choc_install.ps1 "), p->pathW), p->argv);
+    log_stage("[cfw] stage=finalizer-start\n");
     exit_code = run_process(pwsh_pathW, cmdlineW, 0);
+    if(install_succeeded(exit_code)) log_stage("[cfw] stage=finalizer-complete\n");
     return install_succeeded(exit_code) ? ERROR_SUCCESS : exit_code;
 }
 
@@ -176,9 +193,11 @@ DWORD WINAPI cdrive_install(void *ptr){
     wchar_t bufW[MAX_PATH]=L"";
     DWORD exit_code;
     struct paths *p = (struct paths*)ptr;
+    log_stage("[cfw] stage=cdrive-start\n");
     wcscat(wcscat(wcscat(wcscat(bufW, p->sevenzippath), L" x -spf -aot "), p->pathW), L"\\c_drive.7z");
 
     exit_code = run_process(NULL, bufW, 0);
+    if(install_succeeded(exit_code)) log_stage("[cfw] stage=cdrive-complete\n");
     return install_succeeded(exit_code) ? ERROR_SUCCESS : exit_code;
 }
 
@@ -191,6 +210,7 @@ int mainCRTStartup(void) {
     HANDLE hThread[3] = {0};
     struct paths p = {0};
 
+    log_stage("[cfw] stage=bootstrap-start\n");
     argv = CommandLineToArgvW(GetCommandLineW(), &argc);
 
     RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Wine\\DllOverrides", 0, NULL, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, NULL, &hKey, NULL);
@@ -263,9 +283,15 @@ int mainCRTStartup(void) {
         CloseHandle(hThread[i]);
     }
 
-    if(exit_code == ERROR_SUCCESS)
+    if(exit_code == ERROR_SUCCESS) {
+        log_stage("[cfw] stage=prerequisites-complete\n");
         exit_code = pscore_install(&p);
-    if(exit_code == ERROR_SUCCESS)
+    }
+    if(exit_code == ERROR_SUCCESS) {
+        log_stage("[cfw] stage=canonical-check\n");
         exit_code = validate_canonical_choco();
+    }
+    if(exit_code == ERROR_SUCCESS)
+        log_stage("[cfw] stage=bootstrap-complete\n");
     ExitProcess(exit_code);
 }
