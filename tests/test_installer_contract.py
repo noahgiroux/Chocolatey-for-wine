@@ -58,6 +58,16 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
         )
         self.assertIn("validate_canonical_choco", INSTALLER)
 
+    def test_powershell_finalizer_command_has_argv0_and_explicit_file_mode(self):
+        pscore = INSTALLER[INSTALLER.index("DWORD WINAPI pscore_install") : INSTALLER.index("DWORD WINAPI cdrive_install")]
+        self.assertIn("swprintf(", pscore)
+        self.assertIn('L"\\\"%ls\\\" -NoLogo -NonInteractive -File \\\"%ls\\\\choc_install.ps1\\\" \\\"%ls\\\"%ls"', pscore)
+        self.assertIn("ERROR_INSUFFICIENT_BUFFER", pscore)
+        self.assertIn('_wcsicmp(argv[i], L"/s")', MAIN)
+        self.assertIn('_wcsicmp(argv[i], L"/q")', MAIN)
+        script = (ROOT / "choc_install.ps1").read_text(encoding="utf-8")
+        self.assertIn("[cfw] stage=finalizer-script-entry", script[:200])
+
     def test_powershell_finalizer_fails_on_nonterminating_errors(self):
         script = (ROOT / "choc_install.ps1").read_text(encoding="utf-8")
         self.assertIn("$ErrorActionPreference = 'Stop'", script[:500])
