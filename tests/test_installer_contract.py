@@ -42,6 +42,10 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
         self.assertIn("- 'fix/**'", workflow)
         self.assertIn("python3 -m unittest discover -s tests", workflow)
+        self.assertIn('ver="${ver%%-*}"', workflow)
+        self.assertIn("contents: write", workflow)
+        self.assertIn("gh release create", workflow)
+        self.assertIn("--prerelease", workflow)
 
     def test_canonical_upstream_changes_are_monitored(self):
         workflow_path = ROOT / ".github/workflows/upstream-watch.yml"
