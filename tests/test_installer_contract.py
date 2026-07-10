@@ -80,6 +80,9 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
         self.assertIn("contents: write", workflow)
         self.assertIn("gh release create", workflow)
         self.assertIn("--prerelease", workflow)
+        self.assertIn("compile-installer.log", workflow)
+        self.assertIn("Installer compile failed", workflow)
+        self.assertIn('rc="${PIPESTATUS[0]}"', workflow)
 
     def test_canonical_upstream_changes_are_monitored(self):
         workflow_path = ROOT / ".github/workflows/upstream-watch.yml"
