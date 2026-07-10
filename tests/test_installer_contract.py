@@ -34,6 +34,23 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
         self.assertIn("cached_dotnet", MAIN)
         self.assertIn("CopyFileW(cached_dotnet", MAIN)
 
+    def test_installer_reports_container_builder_stage_progress(self):
+        stages = (
+            "bootstrap-start",
+            "net48-start",
+            "chocolatey-payload-start",
+            "cdrive-start",
+            "prerequisites-complete",
+            "powershell-start",
+            "finalizer-start",
+            "finalizer-complete",
+            "canonical-check",
+            "bootstrap-complete",
+        )
+        self.assertIn("static void log_stage", INSTALLER)
+        for stage in stages:
+            self.assertIn(f'log_stage("[cfw] stage={stage}\\n")', INSTALLER)
+
     def test_success_requires_canonical_chocolatey(self):
         self.assertIn(
             'L"%ProgramData%\\\\chocolatey\\\\bin\\\\choco.exe"',
