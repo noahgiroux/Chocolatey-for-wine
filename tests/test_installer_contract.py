@@ -58,6 +58,15 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
         )
         self.assertIn("validate_canonical_choco", INSTALLER)
 
+    def test_installer_directory_is_derived_without_trailing_separator(self):
+        self.assertIn("module_name = wcsrchr(p.pathW, L'\\\\')", MAIN)
+        self.assertIn("p.filenameW = wcsdup(module_name)", MAIN)
+        self.assertIn("*module_name = 0", MAIN)
+        self.assertIn("module_path_length >= MAX_PATH", MAIN)
+        self.assertIn("wcslen(module_name) <= 22", MAIN)
+        self.assertLess(MAIN.index("p.filenameW = wcsdup(module_name)"), MAIN.index("*module_name = 0"))
+        self.assertNotIn("wcslen(p.pathW) - 26", MAIN)
+
     def test_powershell_finalizer_command_has_argv0_and_explicit_file_mode(self):
         pscore = INSTALLER[INSTALLER.index("DWORD WINAPI pscore_install") : INSTALLER.index("DWORD WINAPI cdrive_install")]
         self.assertIn("append_wide(", pscore)
