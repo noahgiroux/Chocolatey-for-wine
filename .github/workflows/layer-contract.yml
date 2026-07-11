@@ -30,7 +30,7 @@ jobs:
       - name: Validate compatibility contract
         run: python -m unittest tests.test_layer_contract
 
-  wrapper-compile:
+  windows-compile:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,3 +44,8 @@ jobs:
         run: |
           x86_64-w64-mingw32-gcc -std=gnu11 -Wall -Wextra -municode -c mainv1.c -o /tmp/powershell64.o
           i686-w64-mingw32-gcc -std=gnu11 -Wall -Wextra -municode -c mainv1.c -o /tmp/powershell32.o
+
+      - name: Compile container finalizer
+        run: |
+          x86_64-w64-mingw32-gcc -std=gnu11 -Wall -Wextra -municode \
+            compat/container-finalizer.c -ladvapi32 -o /tmp/cfw-container-finalizer.exe
