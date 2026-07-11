@@ -23,6 +23,18 @@
       "profile.d/40-cfw-command-adapters.ps1"
     ]
   },
+  "tools": {
+    "containerFinalizer": {
+      "source": "container-finalizer.c",
+      "input": "%ProgramData%\\tools\\chocolateyInstall",
+      "output": "%ProgramData%\\chocolatey",
+      "requiredEnvironment": [
+        "CFW_CONTAINER_BUILDER",
+        "CFW_OFFLINE",
+        "CFW_EXTERNAL_POWERSHELL"
+      ]
+    }
+  },
   "ownership": {
     "powershellEngine": "external",
     "windowsPowerShellShim": "synchro",
