@@ -24,6 +24,8 @@
    -Wl,-gc-sections -Xlinker --stack=0x100000,0x100000 mainv1.c -nostdlib -lucrtbase -lkernel32 -lntdll -s -o powershell32.exe -Wl,--section-alignment,512,--file-alignment,512,-T,linker.ld && strip -R .reloc powershell32.exe
  */
 
+#include <io.h>
+#include <stdlib.h>
 #include <wchar.h>
 #include <windows.h>
 #include <winternl.h>
