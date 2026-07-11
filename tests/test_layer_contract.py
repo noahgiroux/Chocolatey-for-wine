@@ -18,6 +18,10 @@ class LayerContractTests(unittest.TestCase):
         self.assertEqual(contract["ownership"]["windowsPowerShellShim"], "synchro")
         self.assertFalse(contract["constraints"]["overwritePowerShellProfile"])
         self.assertFalse(contract["constraints"]["installCompetingPowerShellShim"])
+        self.assertEqual(
+            contract["tools"]["containerFinalizer"]["requiredEnvironment"],
+            ["CFW_CONTAINER_BUILDER", "CFW_OFFLINE", "CFW_EXTERNAL_POWERSHELL"],
+        )
 
     def test_profile_fragments_are_additive(self) -> None:
         profile_dir = ROOT / "compat" / "profile.d"
@@ -36,6 +40,25 @@ class LayerContractTests(unittest.TestCase):
             self.assertNotIn("New-Item -Path $PROFILE", text)
             self.assertNotIn("Out-File $PROFILE", text)
             self.assertNotIn("WindowsPowerShell\\v1.0\\powershell.exe", text)
+
+    def test_container_finalizer_requires_external_layer(self) -> None:
+        source = (ROOT / "compat" / "container-finalizer.c").read_text(encoding="utf-8")
+
+        for variable in (
+            "CFW_CONTAINER_BUILDER",
+            "CFW_OFFLINE",
+            "CFW_EXTERNAL_POWERSHELL",
+        ):
+            self.assertIn(variable, source)
+        self.assertIn("%ProgramFiles%\\\\PowerShell\\\\7\\\\pwsh.exe", source)
+        self.assertIn("System32\\\\WindowsPowerShell", source)
+        self.assertIn("SysWOW64\\\\WindowsPowerShell", source)
+        self.assertIn("stage=stage-resume", source)
+        self.assertIn("stage=canonical-reconcile", source)
+        self.assertIn("chocolatey.cfw-stage", source)
+        self.assertNotIn("msiexec", source.lower())
+        self.assertNotIn("URLDownloadToFile", source)
+        self.assertNotIn("CreateProcessW", source)
 
     def test_legacy_wrapper_propagates_process_creation_failure(self) -> None:
         source = (ROOT / "mainv1.c").read_text(encoding="utf-8")
