@@ -34,6 +34,37 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
         self.assertIn("cached_dotnet", MAIN)
         self.assertIn("CopyFileW(cached_dotnet", MAIN)
 
+    def test_container_builder_uses_native_canonical_promotion(self):
+        pscore = INSTALLER[INSTALLER.index("DWORD WINAPI pscore_install") : INSTALLER.index("DWORD WINAPI cdrive_install")]
+        self.assertIn('_wgetenv(L"CFW_CONTAINER_BUILDER")', pscore)
+        self.assertIn('_wgetenv(L"CFW_OFFLINE")', pscore)
+        self.assertIn("native_finalize_chocolatey()", pscore)
+        self.assertIn("pscore_install(&p)", MAIN)
+        self.assertLess(MAIN.index("WaitForMultipleObjects"), MAIN.index("pscore_install(&p)"))
+
+        native = INSTALLER[INSTALLER.index("static DWORD native_finalize_chocolatey") : INSTALLER.index("DWORD WINAPI net48_install")]
+        self.assertIn('L"%ProgramData%\\\\tools\\\\chocolateyInstall"', native)
+        self.assertIn('L"%ProgramData%\\\\chocolatey"', native)
+        self.assertIn("MoveFileExW", native)
+        self.assertIn("MOVEFILE_COPY_ALLOWED", native)
+        self.assertIn("MOVEFILE_REPLACE_EXISTING", native)
+        self.assertIn("FILE_ATTRIBUTE_REPARSE_POINT", native)
+        self.assertIn("ERROR_ALREADY_EXISTS", native)
+        self.assertIn('L"\\\\choco.exe"', native)
+        self.assertIn('L"\\\\bin\\\\choco.exe"', native)
+        self.assertIn('L".cfw-part"', native)
+        self.assertIn("CopyFileW(root_choco, staged_choco, TRUE)", native)
+        self.assertIn("GetFileAttributesW(canonical_choco)", native)
+        self.assertNotIn("redirects", native)
+        self.assertIn("RegSetValueExW(", native)
+        self.assertIn('L"ChocolateyInstall"', native)
+        self.assertIn('L"Path"', native)
+        self.assertIn("RegQueryValueExW", native)
+        self.assertIn("ExpandEnvironmentStringsW(", native)
+        self.assertIn("machine_path,", native)
+        self.assertIn("process_path,", native)
+        self.assertIn("SetEnvironmentVariableW", native)
+
     def test_installer_reports_container_builder_stage_progress(self):
         stages = (
             "bootstrap-start",
@@ -41,6 +72,8 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
             "chocolatey-payload-start",
             "cdrive-start",
             "prerequisites-complete",
+            "native-finalizer-start",
+            "native-finalizer-complete",
             "powershell-start",
             "finalizer-start",
             "finalizer-complete",
