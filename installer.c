@@ -97,6 +97,157 @@ static DWORD validate_canonical_choco(void) {
         ? ERROR_FILE_NOT_FOUND
         : ERROR_SUCCESS;
 }
+
+static DWORD native_finalize_chocolatey(void) {
+    wchar_t raw_root[MAX_PATH] = L"";
+    wchar_t raw_choco[MAX_PATH] = L"";
+    wchar_t canonical_root[MAX_PATH] = L"";
+    wchar_t canonical_bin[MAX_PATH] = L"";
+    wchar_t root_choco[MAX_PATH] = L"";
+    wchar_t canonical_choco[MAX_PATH] = L"";
+    wchar_t staged_choco[MAX_PATH] = L"";
+    wchar_t machine_path[4096] = L"";
+    wchar_t process_path[4096] = L"";
+    DWORD expanded, result, attributes, path_bytes = sizeof(machine_path), path_type = 0;
+    HKEY environment;
+
+    log_stage("[cfw] stage=native-finalizer-start\n");
+    expanded = ExpandEnvironmentStringsW(L"%ProgramData%\\tools\\chocolateyInstall", raw_root, MAX_PATH);
+    if(expanded == 0) return GetLastError();
+    if(expanded > MAX_PATH) return ERROR_INSUFFICIENT_BUFFER;
+    expanded = ExpandEnvironmentStringsW(L"%ProgramData%\\chocolatey", canonical_root, MAX_PATH);
+    if(expanded == 0) return GetLastError();
+    if(expanded > MAX_PATH) return ERROR_INSUFFICIENT_BUFFER;
+
+    attributes = GetFileAttributesW(raw_root);
+    if(attributes == INVALID_FILE_ATTRIBUTES) return GetLastError();
+    if(!(attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        return ERROR_INVALID_DATA;
+    if(!append_wide(raw_choco, MAX_PATH, raw_root) ||
+       !append_wide(raw_choco, MAX_PATH, L"\\choco.exe"))
+        return ERROR_INSUFFICIENT_BUFFER;
+    attributes = GetFileAttributesW(raw_choco);
+    if(attributes == INVALID_FILE_ATTRIBUTES) return GetLastError();
+    if((attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        return ERROR_INVALID_DATA;
+
+    attributes = GetFileAttributesW(canonical_root);
+    if(attributes != INVALID_FILE_ATTRIBUTES) return ERROR_ALREADY_EXISTS;
+    result = GetLastError();
+    if(result != ERROR_FILE_NOT_FOUND && result != ERROR_PATH_NOT_FOUND) return result;
+    if(!MoveFileExW(raw_root, canonical_root, MOVEFILE_COPY_ALLOWED | MOVEFILE_WRITE_THROUGH))
+        return GetLastError();
+    attributes = GetFileAttributesW(canonical_root);
+    if(attributes == INVALID_FILE_ATTRIBUTES) return GetLastError();
+    if(!(attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        return ERROR_INVALID_DATA;
+
+    if(!append_wide(canonical_bin, MAX_PATH, canonical_root) ||
+       !append_wide(canonical_bin, MAX_PATH, L"\\bin"))
+        return ERROR_INSUFFICIENT_BUFFER;
+    if(!CreateDirectoryW(canonical_bin, NULL) && GetLastError() != ERROR_ALREADY_EXISTS)
+        return GetLastError();
+    attributes = GetFileAttributesW(canonical_bin);
+    if(attributes == INVALID_FILE_ATTRIBUTES) return GetLastError();
+    if(!(attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        return ERROR_INVALID_DATA;
+
+    if(!append_wide(root_choco, MAX_PATH, canonical_root) ||
+       !append_wide(root_choco, MAX_PATH, L"\\choco.exe") ||
+       !append_wide(canonical_choco, MAX_PATH, canonical_root) ||
+       !append_wide(canonical_choco, MAX_PATH, L"\\bin\\choco.exe") ||
+       !append_wide(staged_choco, MAX_PATH, canonical_choco) ||
+       !append_wide(staged_choco, MAX_PATH, L".cfw-part"))
+        return ERROR_INSUFFICIENT_BUFFER;
+    if(!CopyFileW(root_choco, staged_choco, TRUE))
+        return GetLastError();
+    attributes = GetFileAttributesW(staged_choco);
+    if(attributes == INVALID_FILE_ATTRIBUTES ||
+       (attributes & FILE_ATTRIBUTE_DIRECTORY) ||
+       (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+        DeleteFileW(staged_choco);
+        return ERROR_INVALID_DATA;
+    }
+    if(!MoveFileExW(staged_choco, canonical_choco, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        result = GetLastError();
+        DeleteFileW(staged_choco);
+        return result;
+    }
+    attributes = GetFileAttributesW(canonical_choco);
+    if(attributes == INVALID_FILE_ATTRIBUTES) return GetLastError();
+    if((attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        return ERROR_INVALID_DATA;
+    if(!SetEnvironmentVariableW(L"ChocolateyInstall", canonical_root))
+        return GetLastError();
+
+    result = RegCreateKeyExW(
+        HKEY_LOCAL_MACHINE,
+        L"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",
+        0,
+        NULL,
+        REG_OPTION_NON_VOLATILE,
+        KEY_QUERY_VALUE | KEY_SET_VALUE,
+        NULL,
+        &environment,
+        NULL
+    );
+    if(result != ERROR_SUCCESS) return result;
+    result = RegQueryValueExW(environment, L"Path", NULL, &path_type, (BYTE*)machine_path, &path_bytes);
+    if(result == ERROR_FILE_NOT_FOUND) {
+        machine_path[0] = 0;
+        path_type = REG_EXPAND_SZ;
+    }
+    else if(result != ERROR_SUCCESS || (path_type != REG_SZ && path_type != REG_EXPAND_SZ)) {
+        RegCloseKey(environment);
+        return result == ERROR_SUCCESS ? ERROR_INVALID_DATA : result;
+    }
+    machine_path[(sizeof(machine_path) / sizeof(machine_path[0])) - 1] = 0;
+    if(machine_path[0] && machine_path[wcslen(machine_path) - 1] != L';' &&
+       !append_wide(machine_path, sizeof(machine_path) / sizeof(machine_path[0]), L";")) {
+        RegCloseKey(environment);
+        return ERROR_INSUFFICIENT_BUFFER;
+    }
+    if(!append_wide(machine_path, sizeof(machine_path) / sizeof(machine_path[0]), canonical_bin)) {
+        RegCloseKey(environment);
+        return ERROR_INSUFFICIENT_BUFFER;
+    }
+    result = RegSetValueExW(
+        environment,
+        L"ChocolateyInstall",
+        0,
+        REG_SZ,
+        (BYTE*)canonical_root,
+        (DWORD)((wcslen(canonical_root) + 1) * sizeof(WCHAR))
+    );
+    if(result == ERROR_SUCCESS)
+        result = RegSetValueExW(
+            environment,
+            L"Path",
+            0,
+            path_type,
+            (BYTE*)machine_path,
+            (DWORD)((wcslen(machine_path) + 1) * sizeof(WCHAR))
+        );
+    RegCloseKey(environment);
+    if(result != ERROR_SUCCESS) return result;
+    if(path_type == REG_EXPAND_SZ) {
+        expanded = ExpandEnvironmentStringsW(
+            machine_path,
+            process_path,
+            sizeof(process_path) / sizeof(process_path[0])
+        );
+        if(expanded == 0) return GetLastError();
+        if(expanded > sizeof(process_path) / sizeof(process_path[0]))
+            return ERROR_INSUFFICIENT_BUFFER;
+    }
+    else if(!append_wide(process_path, sizeof(process_path) / sizeof(process_path[0]), machine_path))
+        return ERROR_INSUFFICIENT_BUFFER;
+    if(!SetEnvironmentVariableW(L"Path", process_path))
+        return GetLastError();
+
+    log_stage("[cfw] stage=native-finalizer-complete\n");
+    return ERROR_SUCCESS;
+}
  
 DWORD WINAPI net48_install(void *ptr){
     wchar_t bufW[525]=L"", bufW1[MAX_PATH]=L"";
@@ -195,6 +346,11 @@ DWORD WINAPI pscore_install(void *ptr){
         exit_code = RegSetValueExW(hKey, L"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", 0, REG_SZ, (BYTE*)webview, sizeof(WCHAR)*wcslen(webview)+1);
     RegCloseKey(hKey);
     if(exit_code != ERROR_SUCCESS) return exit_code;
+
+    if(_wgetenv(L"CFW_CONTAINER_BUILDER")) {
+        if(!_wgetenv(L"CFW_OFFLINE")) return ERROR_ACCESS_DENIED;
+        return native_finalize_chocolatey();
+    }
 
     if(
         !append_wide(cmdlineW, sizeof(cmdlineW) / sizeof(cmdlineW[0]), L"\"") ||
