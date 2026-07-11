@@ -1,0 +1,46 @@
+name: Layer Contract
+
+on:
+  push:
+    paths:
+      - 'compat/**'
+      - 'mainv1.c'
+      - 'tests/test_layer_contract.py'
+      - '.github/workflows/layer-contract.yml'
+  pull_request:
+    paths:
+      - 'compat/**'
+      - 'mainv1.c'
+      - 'tests/test_layer_contract.py'
+      - '.github/workflows/layer-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Validate compatibility contract
+        run: python -m unittest tests.test_layer_contract
+
+  wrapper-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MinGW compilers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64 gcc-mingw-w64-i686
+
+      - name: Compile legacy wrappers
+        run: |
+          x86_64-w64-mingw32-gcc -std=gnu11 -Wall -Wextra -municode -c mainv1.c -o /tmp/powershell64.o
+          i686-w64-mingw32-gcc -std=gnu11 -Wall -Wextra -municode -c mainv1.c -o /tmp/powershell32.o
