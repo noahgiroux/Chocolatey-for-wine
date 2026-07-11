@@ -16,6 +16,25 @@ prefix from separately owned layers.
 
 The machine-readable contract is in `contract.json`.
 
+## Container finalizer
+
+`container-finalizer.c` is the clean layer-three entrypoint. It does not
+install PowerShell, download payloads, invoke package scripts, or install a
+competing wrapper. The orchestrator must first:
+
+1. install and prove `pwsh.exe`;
+2. install and prove Synchro's x64 and x86 wrappers;
+3. verify and extract the Chocolatey nupkg so its payload exists at
+   `%ProgramData%\tools\chocolateyInstall`;
+4. set `CFW_CONTAINER_BUILDER=1`, `CFW_OFFLINE=1`, and
+   `CFW_EXTERNAL_POWERSHELL=1`.
+
+The finalizer validates the external layer, stages Chocolatey under
+`%ProgramData%\chocolatey.cfw-stage`, creates canonical `bin\choco.exe`, moves
+the completed tree to `%ProgramData%\chocolatey`, and persists the environment.
+A rerun resumes an interrupted staging operation or reconciles environment
+state around an already valid canonical installation.
+
 ## Profile composition
 
 These fragments are designed to be copied into an orchestrator-owned profile
