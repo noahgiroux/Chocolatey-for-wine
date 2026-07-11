@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "cfw.compatibility-contract/v1",
+  "name": "chocolatey-for-wine",
+  "mode": "additive-compatibility-pack",
+  "requires": {
+    "powershell.engine": {
+      "provider": "pwsh",
+      "version": ">=7.4"
+    },
+    "powershell.winps-shim": {
+      "provider": "synchro/powershell-wrapper-for-wine",
+      "version": "v4.2.0"
+    }
+  },
+  "provides": {
+    "wine.compatibility-pack": "chocolatey-for-wine",
+    "package-manager.bootstrap": "chocolatey"
+  },
+  "contributes": {
+    "powershell.profile-fragments": [
+      "profile.d/20-chocolatey.ps1",
+      "profile.d/30-cfw-winetricks.ps1",
+      "profile.d/40-cfw-command-adapters.ps1"
+    ]
+  },
+  "ownership": {
+    "powershellEngine": "external",
+    "windowsPowerShellShim": "synchro",
+    "profileLoader": "orchestrator",
+    "chocolateyBootstrap": "cfw",
+    "wineCompatibilityFragments": "cfw"
+  },
+  "constraints": {
+    "overwritePowerShellProfile": false,
+    "installCompetingPowerShellShim": false,
+    "containerConsumersMustVerifyInputs": true,
+    "desktopInstallerMayRetainLegacyBehavior": true
+  }
+}
