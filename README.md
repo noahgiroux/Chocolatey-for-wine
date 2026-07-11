@@ -1,131 +1,164 @@
+# Chocolatey-for-Wine integration fork
 
-<div align="right">
-  <details>
-    <summary >🌐 Language</summary>
-    <div>
-      <div align="center">
-        <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=en">English</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=zh-CN">简体中文</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=zh-TW">繁體中文</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=ja">日本語</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=ko">한국어</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=hi">हिन्दी</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=th">ไทย</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=fr">Français</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=de">Deutsch</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=es">Español</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=it">Italiano</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=ru">Русский</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=pt">Português</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=nl">Nederlands</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=pl">Polski</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=ar">العربية</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=fa">فارسی</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=tr">Türkçe</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=vi">Tiếng Việt</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=id">Bahasa Indonesia</a>
-        | <a href="https://openaitx.github.io/view.html?user=PietJankbal&project=Chocolatey-for-wine&lang=as">অসমীয়া</
-      </div>
-    </div>
-  </details>
-</div>
+This fork adapts the upstream Chocolatey-for-Wine project for deterministic
+Wine prefix builders, particularly [Pelagians/Cage](https://github.com/Pelagians/Cage).
+It preserves the upstream-derived interactive installer while separating the
+reusable compatibility behavior from PowerShell ownership.
 
-# Chocolatey-for-wine
+## Project direction
 
-Chocolatey packagemanager automatic installer in wine, handy to install quickly programs in wine (and subsequently find bugs in wine ;) )  
-For some bugs workarounds are added like for Visual Studio Community 2022 and nodejs, see further on.  
+Chocolatey-for-Wine is not the Windows PowerShell compatibility provider in the
+Cage architecture. The layers are:
 
-As I was bored during lock-down I wrote a custom winetricks(.ps1) with verbs I find handy. Just do 'winetricks' to see them.
-For some verbs a full restart of wine is needed (due to recent wine changes). You'll see a messagebox and the session will be ended. Just start powershell again and retry the verb. If this is done once, it won't be needed anymore for any verb.  
+1. **Wine runtime and prefix**: selected and owned by the orchestrator.
+2. **PowerShell engine**: a verified `pwsh.exe` installation.
+3. **Windows PowerShell compatibility**:
+   [Synchro/powershell-wrapper-for-wine](https://codeberg.org/Synchro/powershell-wrapper-for-wine).
+4. **Chocolatey**: canonical `choco.exe`, configuration, and package lifecycle.
+5. **CFW compatibility pack**: Wine-specific profile fragments, registry policy,
+   command adapters, files, and application workarounds.
 
-Example:  
+The machine-readable integration contract and initial additive profile fragments
+are under [`compat/`](compat/README.md).
 
-'winetricks vs22_interactiveinstaller'  ( --> session will be ended)  
+## Deterministic consumers
 
-do 'wine powershell'  
+Cage and similar builders should:
 
-do 'winetricks vs22_interactiveinstaller'  
+- install and prove the PowerShell engine independently;
+- install Synchro's checked 32-bit and 64-bit wrapper assets independently;
+- own the root PowerShell profile and load ordered profile fragments;
+- provide all installer inputs from a verified cache;
+- use CFW for Chocolatey bootstrap and additive compatibility data;
+- validate `choco.exe` with real package install and uninstall tests;
+- never treat file presence or installer exit code alone as readiness.
 
+CFW profile fragments must not overwrite Synchro's profile or an
+orchestrator-owned loader. The intended composition is lexical and additive:
 
-(BTW via 'winetricks vs22_interactive_installer' you can install select what to install via the Visual Studio 2022 installer; 'winetricks vs22_interactive_installer' now got me in ten minutes into the main program (selected Desktop development with C++)).
+```text
+00-orchestrator-prelude.ps1
+10-synchro.ps1
+20-chocolatey.ps1
+30-cfw-winetricks.ps1
+40-cfw-command-adapters.ps1
+80-application.ps1
+90-user.ps1
+```
 
-Install :
-- Download and unzip the release zip-file and do 'wine ChoCinstaller_0.5c.751.exe' (takes about a minute to complete)
+## Container builder mode
 
-Optional:
-- Run the installer like 'wine ChoCinstaller_0.5a.751.exe /s' , then the install files (like Powershell*.msi and dotnet48) are saved in 
-  MyDocuments and they don't need to be downloaded again if you create a new prefix)
-Optional:
-- Run the installer like 'wine ChoCinstaller_0.5a.751.exe /q' to prevent the automatic launch of the powershell window (so install only). 
+The fork supports these environment variables:
 
-Optional:
-- Check if things went well: "choco install chromium" and  "start chrome.exe (--no-sandbox not needed anymore as of wine-8,4)" 
+- `CFW_CACHE`: Windows-form path containing `choc_install_files`.
+- `CFW_OFFLINE=1`: prohibit installer download fallbacks.
+- `CFW_CONTAINER_BUILDER=1`: use the bounded native Chocolatey promotion path
+  instead of trusting the desktop PowerShell finalizer as the success boundary.
 
-![Screenshot from 2022-08-26 12-31-18](https://user-images.githubusercontent.com/26839562/186885380-d5a617c4-9cf4-4831-a475-2bd85a3b5784.png)
-About PowerShell:
+Container mode is deliberately narrower than the interactive desktop install.
+It establishes canonical Chocolatey state. It does not imply that the full
+historical monolithic profile, ConEmu environment, command adapters, or every
+application workaround has been installed.
 
-Tip: Chocolatey usually installs the latest version of a program, which might reveal new wine bugs. You might have more luck with an older version of the software.  
-Example:  
+## Interactive desktop installer
 
-choco search --exact microsoft-edge --all (--> list all versions)  
+For the upstream-style desktop environment:
 
-choco install microsoft-edge --version --version='135.0.3179.98'
+1. Start from a fresh 64-bit Wine prefix.
+2. Download and extract a release archive.
+3. Run the included installer:
 
-General info:
+```bash
+wine ChoCinstaller_0.5c.755.exe
+```
 
-- 'wine powershell.exe' starts the PowerShell-Core console.
+Optional arguments:
 
- 
-About ConEmu:
+```text
+/s    retain downloaded installation files in the cache
+/q    do not open the interactive PowerShell window after installation
+```
 
-ConEmu console suffers from a few wine-bugs:
-  - Ctrl^C to quit a program that doesn't return to the console doesn`t work. Use Shift^Ctrl^C instead.
-  - Selecting text in the ConEmu window (for copy/paste) doesn't highlight the selection. Included is a very sad hack       against recent wine versions that works around this, so highlighting should just work now.
-   
-About winetricks(.ps1):
+The desktop path retains substantial upstream behavior, including .NET,
+PowerShell, ConEmu, generated profiles, DLL policy, and compatibility helpers.
+It should not be used as the specification for deterministic container builds.
 
-- If you don't call it ('winetricks' in powershell-console) , nothing gets downloaded so no overhead there. 
-- A lot of verbs (like powershell 5.1) need a few essential files to extract stuff from msu packages. Installing these essential files requires first huge downloads , and  takes lots of time during 1st time usage. But after things are cached it goes quickly . For example if you might wanna try 'winetricks ps51' first, it will take about  approx. 15 minutes. Some other verbs might take 5 minutes on first time usage. But after you called a verb once this nuisance is gone.
-- Files are cached in directory MyDocuments. If you call all verbs it'll take about 800 MB there.
-- Hopefully some better 64-bit support for various verbs.
-- Possibility to extract a file and (try) install from an msu file. Do 'winetricks install_dll_from_msu' to see how.
-- A rudimentary Powershell 5.1.
-- experimental dotnet481 installation, and dotnet35 (might be needed by apps not satisfied with current dotnet48 installation).
-- Autotab-completion. Note: while using multiple verbs from command line they have to be seperated by a comma
-  from now on (this is how powershell handles multiple arguments)
-  So 'winetricks riched20 gdiplus' won't work anymore, use 'winetricks riched20,gdiplus' instead
-- Some programs fail to install/run when you try them via Chocolatey due to wine-bugs. I added a few workarounds in winetricks for them, see below.
-- Special verbs (winetricks vs19, vs22 and vs22_interactive_installer) to install working Visual Studio Community 2019 and 2022 (see screenshot, >10 mins to install and requires approx. 10GB!, after install start devenv.exe from directory c:\Program\ Files (x86)\Microsoft Visual Studio\2019\Community\Common7\IDE/)
-  ![screenshot](https://github.com/PietJankbal/Chocolatey-for-wine/assets/26839562/d576a619-c752-4eb1-81c2-6f6b66b50ff6)
-- Special verb to get access to various unix commands like grep,sed, file, less, curl etc. etc. (winetricks git.portable, Disclaimer: some commands do not yet work due to wine bugs
-- Also included a few powershell scripts adapted from codesnippets found on the internet:
-    - How to embed an exe in a powershell script via Invoke-ReflectivePEInjection (the exe won't show up in tasklist).
-    - How to make fancy messageboxes
-    - Convert a powershell script (ps1) into an exe.
-    - And a few other
- 
-     
-About system programs:
+## PowerShell wrappers
 
-Feature is added to replace simple system programs like for example setx.exe by a function in
-c:\\Program Files\Powershell\7\profile.ps1. Or add system programs that are missing like getmac.exe.
-If programs fail because of insufficient mature or missing system programs one could write a 
-function to return whatever the program expects. 
-Like in profile.ps1 I added (amongst others) a wmic.exe that supports a bit more options,
-and a basic setx.exe.
-Or you could just manipulate the arguments passed to the system program. See profile.ps1 and choc_install.ps1.
-No garantuee this works for more complex programs as well... 
- 
-Notes:
+`mainv1.c` and the generated `powershell32.exe` / `powershell64.exe` remain for
+compatibility with the historical desktop installer. They are not the canonical
+layer-two implementation for Cage.
 
-  - Do NOT use on existing wineprefix, only on fresh new created prefix! The installer just stupidly installs dotnet48 itsself and messes with registrykeys.
-    If you have any dotnet version already installed with regular winetricks.sh, it will likely fail, and even if it succeeds, you'll likely end up with a broken prefix.
-    If you need to install stuff with regular winetricks.sh for programs, do NOT use any of the dotnet* verbs. 
-    BTW 'Arial' and 'd3dcompiler_47' verbs are already installed by default.
-  - WINEARCH=win32 is _not_ supported!
-  - Updating from a previous version is for now not (yet) supported, maybe later
+New deterministic integrations must use Synchro's current wrapper. The legacy
+wrapper is still tested to ensure child process creation, wait failures, and
+child exit codes are propagated rather than reported as success.
 
-Compile:
-  - If you want to compile yourself instead of downloading binaries: see compilation instructions in mainv1.c and installer.c (or see [the ci](./.github/workflows) )
-  - Then copy choc_install.ps1 into the same directory
-  - Then do 'wine ChoCinstaller_0.5a.735.exe'
+## Compatibility pack
+
+The initial pack contains:
+
+- `compat/contract.json`: requirements, ownership, and contribution metadata;
+- `compat/profile.d/20-chocolatey.ps1`: Chocolatey profile module import;
+- `compat/profile.d/30-cfw-winetricks.ps1`: optional CFW winetricks entrypoint;
+- `compat/profile.d/40-cfw-command-adapters.ps1`: ordered adapter loader.
+
+The remaining monolithic functions in `choc_install.ps1` should be migrated into
+small, named assets over time. Likely groups include:
+
+```text
+compat/registry/
+compat/profile.d/
+compat/command-adapters/
+compat/files/
+compat/app-fixes/
+```
+
+Each extracted component should be independently optional, hashable, and tested.
+
+## Upstream functionality
+
+The inherited project installs Chocolatey in Wine and includes compatibility
+workarounds, a PowerShell-based winetricks implementation, .NET support, and
+special handling for software that exposes Wine bugs. These features remain
+available through the interactive path while the deterministic interface is
+split into explicit layers.
+
+Chocolatey normally installs the newest package version. New application
+versions can expose new Wine regressions, so recipes should pin tested package
+versions when reproducibility matters.
+
+## Constraints
+
+- Use a fresh prefix for the interactive installer.
+- `WINEARCH=win32` is not supported by the inherited installer.
+- Do not combine the inherited .NET installation with unrelated winetricks
+  `.NET` verbs in the same prefix without proving the result.
+- In-place upgrades from older CFW layouts are not yet a supported contract.
+- A successful installer exit is not sufficient evidence for production use.
+
+## Development
+
+The layer contract tests run with:
+
+```bash
+python -m unittest tests.test_layer_contract
+```
+
+The wrapper source is syntax-checked for both architectures in GitHub Actions
+using MinGW.
+
+The upstream-derived C sources include their original build instructions. A
+release archive must contain the compiled installer and the data files expected
+by that installer, including `choc_install.ps1`, `c_drive.7z`, `7z.exe`, and
+`7z.dll`.
+
+## Origin
+
+This repository is derived from:
+
+- `PietJankbal/Chocolatey-for-wine`
+- `Twig6943/Chocolatey-for-wine`
+
+The fork-specific changes focus on deterministic inputs, error propagation,
+container-safe Chocolatey promotion, and separation from the canonical Synchro
+PowerShell compatibility layer.
