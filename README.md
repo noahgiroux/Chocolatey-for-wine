@@ -1,7 +1,7 @@
 # Chocolatey-for-Wine integration fork
 
 This fork adapts the upstream Chocolatey-for-Wine project for deterministic
-Wine prefix builders, particularly [Pelagians/Cage](https://github.com/Pelagians/Cage).
+Wine prefix builders, particularly [Cage](https://github.com/Pelagians/Cage).
 It preserves the upstream-derived interactive installer while separating the
 reusable compatibility behavior from PowerShell ownership.
 
