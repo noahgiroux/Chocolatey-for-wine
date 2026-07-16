@@ -1,0 +1,82 @@
+name: Build CFW Container Runtime
+
+on:
+  push:
+    branches:
+      - agent/integrated-container-runtime
+    paths:
+      - 'compat/**'
+      - 'choc_install.ps1'
+      - 'winetricks.ps1'
+      - '.github/workflows/build-container-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  runtime:
+    name: wine-${{ matrix.wine }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        wine: ['9.0', '10.0', '11.0']
+    env:
+      IMAGE: ghcr.io/pelagians/cage-wine:${{ matrix.wine }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull Cage Wine runtime
+        run: docker pull "$IMAGE"
+
+      - name: Build CFW runtime prefix
+        id: build
+        shell: bash
+        run: |
+          set +e
+          out="$PWD/dist/wine-${{ matrix.wine }}"
+          mkdir -p "$out"
+          docker run --rm \
+            -e WINEPREFIX=/out/prefix \
+            -e CFW_BUILD_CACHE=/out/cache \
+            -v "$PWD:/src:ro" \
+            -v "$out:/out" \
+            "$IMAGE" \
+            /bin/bash /src/compat/build-runtime.sh /out \
+            2>&1 | tee "$out/workflow.log"
+          rc=${PIPESTATUS[0]}
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          exit "$rc"
+
+      - name: Summarize runtime evidence
+        if: always()
+        shell: bash
+        run: |
+          out="$PWD/dist/wine-${{ matrix.wine }}"
+          echo '### CFW runtime build — Wine ${{ matrix.wine }}' >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$out/runtime.json" ]; then
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$out/runtime.json" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'No passing runtime metadata was produced.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f "$out/logs/pwsh-probe.log" ]; then
+            echo '#### PowerShell probe' >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            tail -80 "$out/logs/pwsh-probe.log" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload runtime candidate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cfw-runtime-wine-${{ matrix.wine }}-${{ github.sha }}
+          retention-days: 7
+          if-no-files-found: warn
+          compression-level: 0
+          path: dist/wine-${{ matrix.wine }}
