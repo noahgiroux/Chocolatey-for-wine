@@ -10,12 +10,25 @@ release_root="$work/release"
 release_dir="$release_root/Chocolatey-for-wine"
 logs="$output_root/logs"
 metadata="$output_root/runtime.json"
+stage="setup"
 
 mkdir -p "$output_root" "$payload_cache" "$release_root" "$logs"
 export WINEPREFIX="$wine_prefix"
 export WINEARCH=win64
 unset CFW_CONTAINER_BUILDER
 unset WINEDLLOVERRIDES
+
+on_error() {
+  rc="$?"
+  printf '[cfw] ERROR stage=%s rc=%s\n' "$stage" "$rc" | tee -a "$logs/build-stages.log" >&2
+  exit "$rc"
+}
+trap on_error ERR
+
+mark_stage() {
+  stage="$1"
+  printf '[cfw] stage=%s\n' "$stage" | tee -a "$logs/build-stages.log"
+}
 
 CFW_RELEASE_URL='https://github.com/noahgiroux/Chocolatey-for-wine/releases/download/v0.5c.755-noah.6/Chocolatey-for-wine.7z'
 CFW_RELEASE_SHA256='25c2e3cd544c7f83e9c196a5b8b0f98e020b4f5e24f19de30ea6ceec585d0792'
@@ -53,19 +66,18 @@ fetch_verified() {
   actual="$(sha256sum "$destination.part" | awk '{print $1}')"
   if [[ "$actual" != "$expected" ]]; then
     printf 'checksum mismatch for %s\nexpected=%s\nactual=%s\n' "$url" "$expected" "$actual" >&2
-    exit 69
+    return 69
   fi
   mv -f "$destination.part" "$destination"
 }
 
+mark_stage fetch-inputs
 release_archive="$work/Chocolatey-for-wine.7z"
 fetch_verified "$CFW_RELEASE_URL" "$CFW_RELEASE_SHA256" "$release_archive"
 rm -rf "$release_root"
 mkdir -p "$release_root"
 7z x -y "$release_archive" "-o$release_root" >"$logs/release-extract.log"
-[[ -x "$release_dir/ChoCinstaller_0.5c.755.exe" || -f "$release_dir/ChoCinstaller_0.5c.755.exe" ]]
-
-# Use the current fork scripts with the released native installer binary.
+[[ -f "$release_dir/ChoCinstaller_0.5c.755.exe" ]]
 cp -f "$repo_root/choc_install.ps1" "$release_dir/choc_install.ps1"
 cp -f "$repo_root/winetricks.ps1" "$work/winetricks.ps1"
 
@@ -79,17 +91,27 @@ fetch_verified "$CONEMU_URL" "$CONEMU_SHA256" "$payload_cache/ConEmuPack.230724.
 fetch_verified "$SEVENZIP_EXTRACTOR_URL" "$SEVENZIP_EXTRACTOR_SHA256" "$payload_cache/sevenzipextractor.1.0.19.nupkg"
 fetch_verified "$WINDOWS_POWERSHELL_URL" "$WINDOWS_POWERSHELL_SHA256" "$payload_cache/windowsserver2003-kb968930-x64-eng_8ba702aa016e4c5aed581814647f4d55635eff5c.exe"
 
+mark_stage initialize-prefix
 rm -rf "$wine_prefix"
 mkdir -p "$wine_prefix"
-timeout --kill-after=15s 300s wineboot -u >"$logs/wineboot.log" 2>&1
+set +e
+timeout --kill-after=15s 300s wine wineboot --init >"$logs/wineboot.log" 2>&1
+wineboot_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/wineboot.log" 2>&1
+wineboot_settle_rc="$?"
+set -e
+if [[ "$wineboot_rc" -ne 0 || "$wineboot_settle_rc" -ne 0 || ! -d "$wine_prefix/drive_c" ]]; then
+  printf 'Wine prefix initialization failed: process=%s settle=%s\n' "$wineboot_rc" "$wineboot_settle_rc" >&2
+  cat "$logs/wineboot.log" >&2 || true
+  exit 70
+fi
 
+mark_stage install-cfw
 export CFW_CACHE="$(winepath -w "$work")"
 export CFW_OFFLINE=1
 installer_win="$(winepath -w "$release_dir/ChoCinstaller_0.5c.755.exe")"
 set +e
-timeout --kill-after=30s "${CFW_INSTALL_TIMEOUT:-7200s}" wine "$installer_win" /s /q \
-  >"$logs/installer.log" 2>&1
+timeout --kill-after=30s "${CFW_INSTALL_TIMEOUT:-7200s}" wine "$installer_win" /s /q >"$logs/installer.log" 2>&1
 installer_rc="$?"
 timeout --kill-after=15s 300s wineserver -w >>"$logs/installer.log" 2>&1
 settle_rc="$?"
@@ -100,16 +122,17 @@ choco="$wine_prefix/drive_c/ProgramData/chocolatey/bin/choco.exe"
 wrapper64="$wine_prefix/drive_c/windows/system32/WindowsPowerShell/v1.0/powershell.exe"
 wrapper32="$wine_prefix/drive_c/windows/syswow64/WindowsPowerShell/v1.0/powershell.exe"
 
-[[ "$installer_rc" -eq 0 && "$settle_rc" -eq 0 ]] || {
+if [[ "$installer_rc" -ne 0 || "$settle_rc" -ne 0 ]]; then
   printf 'CFW installer failed: installer=%s settle=%s\n' "$installer_rc" "$settle_rc" >&2
   tail -160 "$logs/installer.log" >&2 || true
   exit 70
-}
+fi
 [[ -s "$pwsh" && -s "$choco" ]] || {
   printf 'CFW output incomplete: pwsh=%s choco=%s\n' "$pwsh" "$choco" >&2
   exit 70
 }
 
+mark_stage prove-pwsh
 probe_dir="$wine_prefix/drive_c/ProgramData/CFW/RuntimeProbe"
 probe_marker="$probe_dir/pwsh.txt"
 mkdir -p "$probe_dir"
@@ -123,12 +146,13 @@ pwsh_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/pwsh-probe.log" 2>&1
 pwsh_settle_rc="$?"
 set -e
-[[ "$pwsh_rc" -eq 0 && "$pwsh_settle_rc" -eq 0 && -s "$probe_marker" ]] || {
+if [[ "$pwsh_rc" -ne 0 || "$pwsh_settle_rc" -ne 0 || ! -s "$probe_marker" ]]; then
   printf 'PowerShell runtime proof failed: process=%s settle=%s marker=%s\n' "$pwsh_rc" "$pwsh_settle_rc" "$probe_marker" >&2
   cat "$logs/pwsh-probe.log" >&2 || true
   exit 70
-}
+fi
 
+mark_stage install-synchro
 synchro_cache="$work/synchro-v4.2.0"
 fetch_verified "$SYNCHRO_BASE_URL/powershell64.exe" "$SYNCHRO64_SHA256" "$synchro_cache/powershell64.exe"
 fetch_verified "$SYNCHRO_BASE_URL/powershell32.exe" "$SYNCHRO32_SHA256" "$synchro_cache/powershell32.exe"
@@ -136,31 +160,30 @@ mkdir -p "$(dirname "$wrapper64")" "$(dirname "$wrapper32")"
 cp -f "$synchro_cache/powershell64.exe" "$wrapper64"
 cp -f "$synchro_cache/powershell32.exe" "$wrapper32"
 
+mark_stage prove-runtime
 choco_win='C:\ProgramData\chocolatey\bin\choco.exe'
 set +e
-timeout --kill-after=15s 300s wine "$choco_win" feature disable --name=powershellHost \
-  >"$logs/choco-feature-policy.log" 2>&1
+timeout --kill-after=15s 300s wine "$choco_win" feature disable --name=powershellHost >"$logs/choco-feature-policy.log" 2>&1
 feature_rc="$?"
 timeout --kill-after=15s 300s wine "$choco_win" --version >"$logs/choco-version.log" 2>&1
 choco_rc="$?"
-timeout --kill-after=15s 300s wine "$wrapper64" -NoLogo -NonInteractive -Command \
-  'Write-Output "[cfw] synchro-x64-ok"' >"$logs/synchro-x64.log" 2>&1
+timeout --kill-after=15s 300s wine "$wrapper64" -NoLogo -NonInteractive -Command 'Write-Output "[cfw] synchro-x64-ok"' >"$logs/synchro-x64.log" 2>&1
 synchro64_rc="$?"
-timeout --kill-after=15s 300s wine "$wrapper32" -NoLogo -NonInteractive -Command \
-  'Write-Output "[cfw] synchro-x86-ok"' >"$logs/synchro-x86.log" 2>&1
+timeout --kill-after=15s 300s wine "$wrapper32" -NoLogo -NonInteractive -Command 'Write-Output "[cfw] synchro-x86-ok"' >"$logs/synchro-x86.log" 2>&1
 synchro32_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >"$logs/final-settle.log" 2>&1
 final_settle_rc="$?"
 set -e
 
+set +e
 tr -d '\r' <"$logs/synchro-x64.log" | grep -Fqx '[cfw] synchro-x64-ok'
 synchro64_marker_rc="$?"
 tr -d '\r' <"$logs/synchro-x86.log" | grep -Fqx '[cfw] synchro-x86-ok'
 synchro32_marker_rc="$?"
+set -e
 
 python3 - "$metadata" "$installer_rc" "$settle_rc" "$pwsh_rc" "$pwsh_settle_rc" "$feature_rc" "$choco_rc" "$synchro64_rc" "$synchro32_rc" "$synchro64_marker_rc" "$synchro32_marker_rc" "$final_settle_rc" <<'PY'
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -184,6 +207,7 @@ checks = {
 record = {
     "schemaVersion": "cfw.runtime-build/v1",
     "provider": "cfw-chocolatey-runtime",
+    "runtimeId": "cfw-chocolatey-2.6.0-powershell-7.5.5-synchro-4.2.0",
     "status": "passed" if all(checks.values()) else "failed",
     "wineVersion": subprocess.run(["wine", "--version"], text=True, capture_output=True).stdout.strip(),
     "powershell": "7.5.5",
@@ -197,8 +221,12 @@ if record["status"] != "passed":
     raise SystemExit(70)
 PY
 
+mark_stage package-runtime
+mkdir -p "$wine_prefix/.cfw"
+cp -f "$metadata" "$wine_prefix/.cfw/runtime.json"
 archive="$output_root/cfw-runtime-prefix.tar.gz"
 tar -C "$wine_prefix" -czf "$archive.part" .
 mv -f "$archive.part" "$archive"
 sha256sum "$archive" >"$archive.sha256"
+mark_stage complete
 printf '[cfw] runtime artifact ready: %s\n' "$archive"
