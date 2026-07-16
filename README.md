@@ -1,44 +1,71 @@
 # Chocolatey-for-Wine integration fork
 
 This fork adapts the upstream Chocolatey-for-Wine project for deterministic
-Wine prefix builders, particularly [Cage](https://github.com/Pelagians/Cage).
-It preserves the upstream-derived interactive installer while separating the
-reusable compatibility behavior from PowerShell ownership.
+Wine application builders, particularly [Cage](https://github.com/Pelagians/Cage).
+It preserves the upstream-derived interactive installer and adds a reproducible
+prepared-prefix runtime contract for container consumers.
 
 ## Project direction
 
-Chocolatey-for-Wine is not the Windows PowerShell compatibility provider in the
-Cage architecture. The layers are:
+CFW owns the compatibility stack that cannot be separated cleanly from Wine:
 
-1. **Wine runtime and prefix**: selected and owned by the orchestrator.
-2. **PowerShell engine**: a verified `pwsh.exe` installation.
-3. **Windows PowerShell compatibility**:
-   [Synchro/powershell-wrapper-for-wine](https://codeberg.org/Synchro/powershell-wrapper-for-wine).
-4. **Chocolatey**: canonical `choco.exe`, configuration, and package lifecycle.
-5. **CFW compatibility pack**: Wine-specific profile fragments, registry policy,
-   command adapters, files, and application workarounds.
+1. a fresh win64 Wine prefix;
+2. the inherited .NET and CLR policy;
+3. the Windows PowerShell runtime used by Chocolatey packages;
+4. pinned Synchro `powershell.exe` wrappers;
+5. canonical Chocolatey state;
+6. CFW registry policy, command adapters, and application workarounds.
 
-The machine-readable integration contract and initial additive profile fragments
-are under [`compat/`](compat/README.md).
+These parts are built and proved together once. Consumers do not reconstruct
+WMF servicing payloads, the .NET GAC, native CLR loaders, or wrapper state during
+every application build.
+
+The machine-readable contract is [`compat/contract.json`](compat/contract.json).
+
+## Prepared runtime artifact
+
+`compat/build-runtime.sh` builds a reusable prefix foundation from verified
+inputs. It requires all of the following before producing an artifact:
+
+- the full CFW installer exits successfully and Wine settles;
+- Windows `pwsh.exe` executes a command and creates a filesystem side effect;
+- pinned Synchro v4.2.0 wrappers execute through both x64 and x86 paths;
+- canonical Chocolatey reports its version;
+- Chocolatey's in-process PowerShell host is disabled;
+- the final Wine server settles cleanly.
+
+A successful build produces:
+
+```text
+cfw-runtime-prefix.tar.gz
+cfw-runtime-prefix.tar.gz.sha256
+runtime.json
+logs/
+```
+
+`runtime.json` records the Wine builder version, PowerShell, Synchro, Chocolatey,
+and every required return code. The archive is a complete prepared prefix, not a
+loose file overlay. A consumer must seed it into a fresh prefix before running
+application modules.
+
+The CI matrix currently evaluates the published Cage Wine 9.0, 10.0, and 11.0
+runtime images. Only a candidate that passes every runtime proof may be released.
 
 ## Deterministic consumers
 
 Cage and similar builders should:
 
-- install and prove the PowerShell engine independently;
-- install Synchro's checked 32-bit and 64-bit wrapper assets independently;
-- own the root PowerShell profile and load ordered profile fragments;
-- provide all installer inputs from a verified cache;
-- use CFW for Chocolatey bootstrap and additive compatibility data;
-- validate `choco.exe` with real package install and uninstall tests;
-- never treat file presence or installer exit code alone as readiness.
+- download a released CFW runtime archive by immutable URL and SHA-256;
+- verify `runtime.json` and the declared Wine compatibility;
+- replace a fresh prefix with the prepared prefix before other modules run;
+- validate `choco.exe` with a real package install and uninstall lifecycle;
+- keep application-specific package selection and orchestration outside CFW;
+- never reproduce CFW's CLR, WMF, GAC, or Synchro installation internals.
 
-CFW profile fragments must not overwrite Synchro's profile or an
-orchestrator-owned loader. The intended composition is lexical and additive:
+The CFW profile fragments remain additive for consumers that need to compose
+additional application or user policy:
 
 ```text
-00-orchestrator-prelude.ps1
-10-synchro.ps1
 20-chocolatey.ps1
 30-cfw-winetricks.ps1
 40-cfw-command-adapters.ps1
@@ -46,23 +73,34 @@ orchestrator-owned loader. The intended composition is lexical and additive:
 90-user.ps1
 ```
 
-## Container builder mode
+## Rejected package-host shortcut
 
-The fork supports these environment variables:
+Chocolatey 2.6.0 was tested with its in-process PowerShell host enabled and the
+complete legacy Windows PowerShell assembly set copied beside `choco.exe`. It
+still failed with `ReflectionTypeLoadException`. That path is not a supported
+runtime contract.
 
-- `CFW_CACHE`: Windows-form path containing `choc_install_files`.
-- `CFW_OFFLINE=1`: prohibit installer download fallbacks.
-- `CFW_CONTAINER_BUILDER=1`: use the bounded native Chocolatey promotion path
-  instead of trusting the desktop PowerShell finalizer as the success boundary.
+Chocolatey packages execute through the external Windows-compatible PowerShell
+surface included in the prepared runtime. Synchro is part of that artifact rather
+than a separate dependency that every consumer must install.
 
-Container mode is deliberately narrower than the interactive desktop install.
-It establishes canonical Chocolatey state. It does not imply that the full
-historical monolithic profile, ConEmu environment, command adapters, or every
-application workaround has been installed.
+## Native container finalizer
+
+`CFW_CONTAINER_BUILDER=1` still enables the bounded native Chocolatey promotion
+path in `compat/container-finalizer.c`. It is useful for diagnostics and for
+establishing canonical Chocolatey state, but it is not the complete runtime
+artifact. The complete deterministic boundary is the prepared prefix produced by
+`compat/build-runtime.sh`.
+
+Supported installer environment variables include:
+
+- `CFW_CACHE`: Windows-form path containing `choc_install_files`;
+- `CFW_OFFLINE=1`: prohibit installer download fallbacks;
+- `CFW_CONTAINER_BUILDER=1`: use the native Chocolatey-only finalizer.
 
 ## Interactive desktop installer
 
-For the upstream-style desktop environment:
+For the inherited desktop environment:
 
 1. Start from a fresh 64-bit Wine prefix.
 2. Download and extract a release archive.
@@ -79,31 +117,31 @@ Optional arguments:
 /q    do not open the interactive PowerShell window after installation
 ```
 
-The desktop path retains substantial upstream behavior, including .NET,
-PowerShell, ConEmu, generated profiles, DLL policy, and compatibility helpers.
-It should not be used as the specification for deterministic container builds.
+The desktop path retains upstream behavior including .NET, PowerShell, ConEmu,
+generated profiles, DLL policy, and compatibility helpers. The prepared runtime
+builder wraps that behavior in strict input verification and runtime proofs.
 
 ## PowerShell wrappers
 
-`mainv1.c` and the generated `powershell32.exe` / `powershell64.exe` remain for
-compatibility with the historical desktop installer. They are not the canonical
-layer-two implementation for Cage.
+`mainv1.c` and the generated historical wrapper binaries remain for compatibility
+with the desktop installer. Deterministic runtime artifacts replace the public
+x64 and x86 wrapper paths with pinned Synchro v4.2.0 binaries.
 
-New deterministic integrations must use Synchro's current wrapper. The legacy
-wrapper is still tested to ensure child process creation, wait failures, and
-child exit codes are propagated rather than reported as success.
+The legacy wrapper source is still tested to ensure process-creation failures,
+wait failures, and child exit codes are propagated rather than reported as
+success.
 
 ## Compatibility pack
 
-The initial pack contains:
+The additive pack contains:
 
-- `compat/contract.json`: requirements, ownership, and contribution metadata;
+- `compat/contract.json`: artifact, ownership, and consumer requirements;
 - `compat/profile.d/20-chocolatey.ps1`: Chocolatey profile module import;
 - `compat/profile.d/30-cfw-winetricks.ps1`: optional CFW winetricks entrypoint;
 - `compat/profile.d/40-cfw-command-adapters.ps1`: ordered adapter loader.
 
-The remaining monolithic functions in `choc_install.ps1` should be migrated into
-small, named assets over time. Likely groups include:
+The remaining monolithic functions in `choc_install.ps1` can still be migrated
+into named assets over time:
 
 ```text
 compat/registry/
@@ -113,44 +151,35 @@ compat/files/
 compat/app-fixes/
 ```
 
-Each extracted component should be independently optional, hashable, and tested.
-
-## Upstream functionality
-
-The inherited project installs Chocolatey in Wine and includes compatibility
-workarounds, a PowerShell-based winetricks implementation, .NET support, and
-special handling for software that exposes Wine bugs. These features remain
-available through the interactive path while the deterministic interface is
-split into explicit layers.
-
-Chocolatey normally installs the newest package version. New application
-versions can expose new Wine regressions, so recipes should pin tested package
-versions when reproducibility matters.
+Those refactors improve CFW itself; they do not expand Cage's module surface.
 
 ## Constraints
 
-- Use a fresh prefix for the interactive installer.
+- Runtime artifacts are built from fresh win64 prefixes.
 - `WINEARCH=win32` is not supported by the inherited installer.
-- Do not combine the inherited .NET installation with unrelated winetricks
-  `.NET` verbs in the same prefix without proving the result.
-- In-place upgrades from older CFW layouts are not yet a supported contract.
-- A successful installer exit is not sufficient evidence for production use.
+- Do not merge a prepared artifact into a mutated prefix.
+- Do not combine the inherited .NET installation with unrelated .NET verbs
+  without proving the resulting runtime.
+- In-place upgrades from older CFW layouts are not yet supported.
+- Installer exit code or file presence alone is never sufficient readiness proof.
 
 ## Development
 
-The layer contract tests run with:
+Run contract tests with:
 
 ```bash
 python -m unittest tests.test_layer_contract
 ```
 
-The wrapper source is syntax-checked for both architectures in GitHub Actions
-using MinGW.
+The runtime matrix is defined in:
 
-The upstream-derived C sources include their original build instructions. A
-release archive must contain the compiled installer and the data files expected
-by that installer, including `choc_install.ps1`, `c_drive.7z`, `7z.exe`, and
-`7z.dll`.
+```text
+.github/workflows/build-container-runtime.yml
+```
+
+The upstream-derived C sources retain their original build instructions. Release
+archives must contain the native installer and its expected data files, including
+`choc_install.ps1`, `c_drive.7z`, `7z.exe`, and `7z.dll`.
 
 ## Origin
 
@@ -159,6 +188,5 @@ This repository is derived from:
 - `PietJankbal/Chocolatey-for-wine`
 - `Twig6943/Chocolatey-for-wine`
 
-The fork-specific changes focus on deterministic inputs, error propagation,
-container-safe Chocolatey promotion, and separation from the canonical Synchro
-PowerShell compatibility layer.
+The fork-specific changes focus on deterministic inputs, runtime evidence,
+container-safe Chocolatey promotion, and a reusable prepared-prefix boundary.
