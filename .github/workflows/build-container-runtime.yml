@@ -54,6 +54,7 @@ jobs:
             /bin/bash /src/compat/build-runtime.sh /out \
             2>&1 | tee "$out/workflow.log"
           rc=${PIPESTATUS[0]}
+          sudo chown -R "$(id -u):$(id -g)" "$out" || true
           echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
           exit "$rc"
 
@@ -74,6 +75,12 @@ jobs:
             echo '#### PowerShell probe' >> "$GITHUB_STEP_SUMMARY"
             echo '```text' >> "$GITHUB_STEP_SUMMARY"
             tail -80 "$out/logs/pwsh-probe.log" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f "$out/logs/installer.log" ]; then
+            echo '#### Installer tail' >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            tail -80 "$out/logs/installer.log" >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
           fi
 
