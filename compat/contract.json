@@ -1,32 +1,39 @@
 {
-  "schemaVersion": "cfw.compatibility-contract/v2",
+  "schemaVersion": "cfw.compatibility-contract/v3",
   "name": "chocolatey-for-wine",
-  "mode": "integrated-container-runtime",
-  "requires": {
-    "wine.prefix": {
-      "architecture": "win64",
-      "freshPrefix": true
-    },
-    "container.tools": [
-      "python3",
-      "7z",
-      "winepath",
-      "timeout"
+  "mode": "prepared-prefix-runtime",
+  "build": {
+    "script": "build-runtime.sh",
+    "wineCandidates": [
+      "9.0",
+      "10.0",
+      "11.0"
+    ],
+    "freshWin64Prefix": true,
+    "requiredProofs": [
+      "cfw-installer",
+      "windows-pwsh-side-effect",
+      "synchro-x64-marker",
+      "synchro-x86-marker",
+      "chocolatey-version",
+      "wineserver-settle"
     ]
+  },
+  "artifact": {
+    "kind": "prepared-wine-prefix",
+    "archive": "cfw-runtime-prefix.tar.gz",
+    "evidence": "runtime.json",
+    "seedSemantics": "replace-fresh-prefix",
+    "mustPrecedeApplicationModules": true,
+    "runtimeCompatibility": "declared-in-evidence"
   },
   "provides": {
     "package-manager": "chocolatey-2.6.0",
-    "package-execution-host": "chocolatey-in-process-powershell",
+    "package-execution-host": "external-windows-powershell",
+    "windows-powershell-shim": "synchro-v4.2.0",
     "dotnet-runtime": "cfw-dotnet48",
     "wine.compatibility-pack": "chocolatey-for-wine",
-    "container-runtime": "cfw-integrated-chocolatey-runtime"
-  },
-  "optional": {
-    "interactive-windows-powershell": {
-      "provider": "synchro/powershell-wrapper-for-wine",
-      "version": "v4.2.0",
-      "requiredForPackageInstallation": false
-    }
+    "prefix-foundation": "cfw-chocolatey-runtime"
   },
   "contributes": {
     "powershell.profile-fragments": [
@@ -35,35 +42,32 @@
       "profile.d/40-cfw-command-adapters.ps1"
     ]
   },
-  "tools": {
-    "nativeChocolateyFinalizer": {
-      "source": "container-finalizer.c",
-      "input": "%ProgramData%\\tools\\chocolateyInstall",
-      "output": "%ProgramData%\\chocolatey"
-    },
-    "containerRuntimeFinalizer": {
-      "source": "container-runtime.sh",
-      "phase": "after-native-chocolatey-finalizer",
-      "requiredEnvironment": [
-        "WINEPREFIX",
-        "CFW_PAYLOAD_CACHE_POSIX"
-      ],
-      "evidence": "cfw.container-runtime/v1"
-    }
-  },
   "ownership": {
     "dotnetAndClrCompatibility": "cfw",
+    "powershellRuntime": "cfw-runtime-artifact",
+    "windowsPowerShellShim": "cfw-runtime-artifact",
     "chocolateyBootstrap": "cfw",
-    "packageExecutionHost": "cfw",
+    "packageExecutionHost": "cfw-runtime-artifact",
     "wineCompatibilityFragments": "cfw",
-    "interactiveWindowsPowerShell": "optional-external-provider",
+    "artifactAcquisitionAndVerification": "consumer",
     "recipeOrchestration": "consumer"
   },
   "constraints": {
     "consumerMustNotReconstructWmfOrGac": true,
-    "consumerMustNotOwnCfwClrPayloads": true,
+    "consumerMustNotInstallCfwClrPayloads": true,
+    "consumerMustNotInstallSynchroForChocolatey": true,
+    "consumerMustSeedArtifactBeforeOtherModules": true,
+    "consumerMustVerifyArchiveDigest": true,
     "consumerMustVerifyRuntimeEvidence": true,
-    "overwriteConsumerInteractiveProfile": false,
+    "chocolateyInProcessPowerShellHost": false,
     "desktopInstallerMayRetainLegacyBehavior": true
+  },
+  "rejected": {
+    "chocolatey-in-process-powershell": {
+      "reason": "Chocolatey 2.6.0 fails with ReflectionTypeLoadException even with the complete legacy Windows PowerShell assembly set"
+    },
+    "consumer-built-wmf-runtime": {
+      "reason": "duplicates CFW-specific servicing, CLR, GAC, registry, and wrapper knowledge in every consumer build"
+    }
   }
 }
