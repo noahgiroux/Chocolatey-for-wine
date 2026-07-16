@@ -92,4 +92,9 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
           compression-level: 0
-          path: dist/wine-${{ matrix.wine }}
+          path: |
+            dist/wine-${{ matrix.wine }}/workflow.log
+            dist/wine-${{ matrix.wine }}/runtime.json
+            dist/wine-${{ matrix.wine }}/cfw-runtime-prefix.tar.gz
+            dist/wine-${{ matrix.wine }}/cfw-runtime-prefix.tar.gz.sha256
+            dist/wine-${{ matrix.wine }}/logs
