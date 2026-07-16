@@ -9,6 +9,12 @@ on:
       - 'choc_install.ps1'
       - 'winetricks.ps1'
       - '.github/workflows/build-container-runtime.yml'
+  pull_request:
+    paths:
+      - 'compat/**'
+      - 'choc_install.ps1'
+      - 'winetricks.ps1'
+      - '.github/workflows/build-container-runtime.yml'
   workflow_dispatch:
 
 permissions:
