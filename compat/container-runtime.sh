@@ -64,18 +64,21 @@ log "[cfw] stage=container-runtime-start"
 # finalizer installs, without requiring a separate PS5.1 operating environment.
 rm -rf "$choco_root/.cfw-ps-assembly-stage"
 mkdir -p "$choco_root/.cfw-ps-assembly-stage"
-"$sevenzip" e -y \
+"$sevenzip" e -y -ssc- -r \
   -x'!*resources.dll' \
   "$legacy_ps_package" \
-  'Microsoft.Powershell*.dll' \
-  'Microsoft.WSman*.dll' \
-  'system.management.automation.dll' \
+  'Microsoft.PowerShell*.dll' \
+  'Microsoft.WSMan*.dll' \
+  'System.Management.Automation.dll' \
   "-o$choco_root/.cfw-ps-assembly-stage" \
   >"$logs/powershell-assemblies.log" 2>&1
 
-assembly_count="$(find "$choco_root/.cfw-ps-assembly-stage" -maxdepth 1 -type f -iname '*.dll' | wc -l | tr -d ' ')"
-[ "$assembly_count" -gt 0 ] || {
-  log "[cfw] ERROR: no Windows PowerShell assemblies were extracted"
+find "$choco_root/.cfw-ps-assembly-stage" -maxdepth 1 -type f -iname '*.dll' -printf '%f\n' \
+  | sort -f >"$logs/powershell-assembly-inventory.log"
+assembly_count="$(wc -l < "$logs/powershell-assembly-inventory.log" | tr -d ' ')"
+[ "$assembly_count" -ge 8 ] || {
+  log "[cfw] ERROR: incomplete Windows PowerShell assembly set: count=$assembly_count"
+  cat "$logs/powershell-assembly-inventory.log" >>"$logs/container-runtime.log"
   exit 69
 }
 find "$choco_root/.cfw-ps-assembly-stage" -maxdepth 1 -type f -iname '*.dll' -exec cp -f {} "$choco_root/" \;
@@ -142,7 +145,7 @@ path = Path(sys.argv[1])
 assembly_count = int(sys.argv[2])
 values = [int(value) for value in sys.argv[3:]]
 checks = {
-    "powershellAssemblies": assembly_count > 0,
+    "powershellAssemblies": assembly_count >= 8,
     "wineserverSettle": values[1] == 0,
     "featureEnable": values[2] in {0, 2},
     "featureList": values[3] == 0,
@@ -168,6 +171,7 @@ record = {
     "logs": {
         "runtime": "logs/container-runtime.log",
         "powershellAssemblies": "logs/powershell-assemblies.log",
+        "powershellAssemblyInventory": "logs/powershell-assembly-inventory.log",
         "mscoreeUpdate": "logs/mscoree-update.log",
         "dotnetPolicy": "logs/dotnet-policy.log",
         "featurePolicy": "logs/feature-policy.log",
