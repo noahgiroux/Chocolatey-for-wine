@@ -1,20 +1,32 @@
 {
-  "schemaVersion": "cfw.compatibility-contract/v1",
+  "schemaVersion": "cfw.compatibility-contract/v2",
   "name": "chocolatey-for-wine",
-  "mode": "additive-compatibility-pack",
+  "mode": "integrated-container-runtime",
   "requires": {
-    "powershell.engine": {
-      "provider": "pwsh",
-      "version": ">=7.4"
+    "wine.prefix": {
+      "architecture": "win64",
+      "freshPrefix": true
     },
-    "powershell.winps-shim": {
-      "provider": "synchro/powershell-wrapper-for-wine",
-      "version": "v4.2.0"
-    }
+    "container.tools": [
+      "python3",
+      "7z",
+      "winepath",
+      "timeout"
+    ]
   },
   "provides": {
+    "package-manager": "chocolatey-2.6.0",
+    "package-execution-host": "chocolatey-in-process-powershell",
+    "dotnet-runtime": "cfw-dotnet48",
     "wine.compatibility-pack": "chocolatey-for-wine",
-    "package-manager.bootstrap": "chocolatey"
+    "container-runtime": "cfw-integrated-chocolatey-runtime"
+  },
+  "optional": {
+    "interactive-windows-powershell": {
+      "provider": "synchro/powershell-wrapper-for-wine",
+      "version": "v4.2.0",
+      "requiredForPackageInstallation": false
+    }
   },
   "contributes": {
     "powershell.profile-fragments": [
@@ -24,28 +36,34 @@
     ]
   },
   "tools": {
-    "containerFinalizer": {
+    "nativeChocolateyFinalizer": {
       "source": "container-finalizer.c",
       "input": "%ProgramData%\\tools\\chocolateyInstall",
-      "output": "%ProgramData%\\chocolatey",
+      "output": "%ProgramData%\\chocolatey"
+    },
+    "containerRuntimeFinalizer": {
+      "source": "container-runtime.sh",
+      "phase": "after-native-chocolatey-finalizer",
       "requiredEnvironment": [
-        "CFW_CONTAINER_BUILDER",
-        "CFW_OFFLINE",
-        "CFW_EXTERNAL_POWERSHELL"
-      ]
+        "WINEPREFIX",
+        "CFW_PAYLOAD_CACHE_POSIX"
+      ],
+      "evidence": "cfw.container-runtime/v1"
     }
   },
   "ownership": {
-    "powershellEngine": "external",
-    "windowsPowerShellShim": "synchro",
-    "profileLoader": "orchestrator",
+    "dotnetAndClrCompatibility": "cfw",
     "chocolateyBootstrap": "cfw",
-    "wineCompatibilityFragments": "cfw"
+    "packageExecutionHost": "cfw",
+    "wineCompatibilityFragments": "cfw",
+    "interactiveWindowsPowerShell": "optional-external-provider",
+    "recipeOrchestration": "consumer"
   },
   "constraints": {
-    "overwritePowerShellProfile": false,
-    "installCompetingPowerShellShim": false,
-    "containerConsumersMustVerifyInputs": true,
+    "consumerMustNotReconstructWmfOrGac": true,
+    "consumerMustNotOwnCfwClrPayloads": true,
+    "consumerMustVerifyRuntimeEvidence": true,
+    "overwriteConsumerInteractiveProfile": false,
     "desktopInstallerMayRetainLegacyBehavior": true
   }
 }
