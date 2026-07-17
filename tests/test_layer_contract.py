@@ -30,8 +30,10 @@ class LayerContractTests(unittest.TestCase):
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
         inputs = json.loads((ROOT / "compat" / "runtime-inputs.json").read_text(encoding="utf-8"))
 
-        self.assertIn("CFW_OFFLINE=1", source)
-        self.assertIn("unset CFW_CONTAINER_BUILDER", source)
+        self.assertIn("winepath_to_windows", source)
+        self.assertIn("winepath-${label}.log", source)
+        self.assertIn("Wine path conversion failed", source)
+        self.assertIn('cfw_cache_win="$(winepath_to_windows cfw-cache "$work")"', source)
         self.assertIn('WINEDLLOVERRIDES="mscoree,mshtml="', source)
         self.assertIn('wine wineboot --init', source)
         self.assertIn('export WINEDLLOVERRIDES=""', source)
