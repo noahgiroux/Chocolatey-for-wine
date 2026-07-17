@@ -133,6 +133,28 @@ fetch_input() {
   fetch_verified "$(input_value "$input_name" url)" "$(input_value "$input_name" sha256)" "$destination"
 }
 
+winepath_to_windows() {
+  local label="$1" host_path="$2" log converted rc
+  log="$logs/winepath-${label}.log"
+  set +e
+  winepath -w "$host_path" >"$log" 2>&1
+  rc="$?"
+  set -e
+  if [[ "$rc" -ne 0 ]]; then
+    printf '[cfw] Wine path conversion failed: label=%s rc=%s host_path=%s prefix=%s dll_overrides=%s\n' \
+      "$label" "$rc" "$host_path" "$WINEPREFIX" "${WINEDLLOVERRIDES:-<unset>}" >&2
+    cat "$log" >&2 || true
+    return "$rc"
+  fi
+  converted="$(tr -d '\r\n' < "$log")"
+  if [[ -z "$converted" ]]; then
+    printf '[cfw] Wine path conversion failed: label=%s rc=0 empty-output host_path=%s prefix=%s\n' \
+      "$label" "$host_path" "$WINEPREFIX" >&2
+    return 65
+  fi
+  printf '%s\n' "$converted"
+}
+
 write_cfw_profile_loader() {
   local pwsh_dir="$1" fragment_root legacy_profile profile
   fragment_root="$wine_prefix/drive_c/ProgramData/Chocolatey-for-wine/profile.d"
@@ -228,9 +250,10 @@ fi
 export WINEDLLOVERRIDES=""
 
 mark_stage install-cfw
-export CFW_CACHE="$(winepath -w "$work")"
+cfw_cache_win="$(winepath_to_windows cfw-cache "$work")"
+export CFW_CACHE="$cfw_cache_win"
 export CFW_OFFLINE=1
-installer_win="$(winepath -w "$release_dir/ChoCinstaller_0.5c.755.exe")"
+installer_win="$(winepath_to_windows cfw-installer "$release_dir/ChoCinstaller_0.5c.755.exe")"
 set +e
 timeout --kill-after=30s "${CFW_INSTALL_TIMEOUT:-7200s}" wine "$installer_win" /s /q >"$logs/installer.log" 2>&1
 installer_rc="$?"
