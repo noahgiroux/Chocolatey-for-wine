@@ -19,23 +19,78 @@ class LayerContractTests(unittest.TestCase):
         self.assertEqual(contract["ownership"]["powershellRuntime"], "cfw-runtime-artifact")
         self.assertTrue(contract["constraints"]["consumerMustNotReconstructWmfOrGac"])
         self.assertTrue(contract["constraints"]["consumerMustSeedArtifactBeforeOtherModules"])
+        self.assertEqual(contract["artifact"]["manifest"], "cfw-runtime-manifest.json")
+        self.assertIn("chocolatey-lifecycle", contract["build"]["requiredProofs"])
+        self.assertIn("synchro-x64-side-effect", contract["build"]["requiredProofs"])
+        self.assertEqual(contract["ownership"]["profileLoader"], "cfw-runtime-artifact")
+        self.assertTrue(contract["constraints"]["consumerMustVerifyRuntimeManifest"])
         self.assertFalse(contract["constraints"]["chocolateyInProcessPowerShellHost"])
 
     def test_runtime_builder_has_strict_proofs(self) -> None:
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
+        inputs = json.loads((ROOT / "compat" / "runtime-inputs.json").read_text(encoding="utf-8"))
 
         self.assertIn("CFW_OFFLINE=1", source)
         self.assertIn("unset CFW_CONTAINER_BUILDER", source)
-        self.assertIn("PowerShell-7.5.5-win-x64.msi", source)
-        self.assertIn("powershell-wrapper-for-wine/releases/download/v4.2.0", source)
-        self.assertIn("b1d594bd44abc01007b9dd2adea5248f09906fa8d4c6cea7f36a4279e2de91e0", source)
-        self.assertIn("ca76d774273ffa37053545f8e4ad63c8914461828f1d1eef7a1915c9656fed4c", source)
+        self.assertEqual(inputs["downloads"]["powershell"]["filename"], "PowerShell-7.5.5-win-x64.msi")
+        self.assertIn("powershell-wrapper-for-wine/releases/download/v4.2.0", inputs["downloads"]["synchro64"]["url"])
+        self.assertEqual(inputs["downloads"]["synchro64"]["sha256"], "b1d594bd44abc01007b9dd2adea5248f09906fa8d4c6cea7f36a4279e2de91e0")
+        self.assertEqual(inputs["downloads"]["synchro32"]["sha256"], "ca76d774273ffa37053545f8e4ad63c8914461828f1d1eef7a1915c9656fed4c")
         self.assertIn("feature disable --name=powershellHost", source)
         self.assertIn("pwsh-probe.log", source)
-        self.assertIn("synchro-x64-ok", source)
-        self.assertIn("synchro-x86-ok", source)
-        self.assertIn("cfw-runtime-prefix.tar.gz", source)
-        self.assertIn("cfw.runtime-build/v1", source)
+        self.assertIn("synchro-x64.txt", source)
+        self.assertIn("synchro-x86.txt", source)
+        self.assertIn("cfw-runtime-prefix", source)
+        self.assertIn("cfw.runtime-build/v2", source)
+
+    def test_runtime_inputs_are_locked_and_checkout_overrides_are_identified(self) -> None:
+        inputs_path = ROOT / "compat" / "runtime-inputs.json"
+        self.assertTrue(inputs_path.is_file(), "prepared runtime inputs must be versioned")
+        inputs = json.loads(inputs_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(inputs["schemaVersion"], "cfw.runtime-inputs/v1")
+        for name in (
+            "cfwRelease",
+            "chocolatey",
+            "powershell",
+            "dotnet",
+            "mscoree",
+            "synchro64",
+            "synchro32",
+        ):
+            payload = inputs["downloads"][name]
+            self.assertTrue(payload["url"].startswith("https://"), name)
+            self.assertRegex(payload["sha256"], r"^[0-9a-f]{64}$", name)
+        for source_name in ("choc_install.ps1", "winetricks.ps1"):
+            self.assertRegex(inputs["checkoutSources"][source_name]["sha256"], r"^[0-9a-f]{64}$")
+
+        source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
+        self.assertIn("runtime-inputs.json", source)
+        self.assertIn("CFW_RUNTIME_INPUTS_SHA256", source)
+        self.assertIn("verify_checkout_source", source)
+
+    def test_runtime_builder_requires_behavioral_proofs_and_manifest(self) -> None:
+        source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
+
+        self.assertIn("synchro-x64.txt", source)
+        self.assertIn("synchro-x86.txt", source)
+        self.assertIn("chocolatey-install.txt", source)
+        self.assertIn("chocolatey-uninstall.txt", source)
+        self.assertIn("featurePolicy", source)
+        self.assertIn("CFW_WINE_IMAGE", source)
+        self.assertIn("CFW_RUNTIME_EVIDENCE_NAME", source)
+        self.assertIn("CFW_RUNTIME_MANIFEST_NAME", source)
+        self.assertIn("values = [int(value) for value in sys.argv[2:19]]", source)
+        self.assertIn("markers = [Path(value) for value in sys.argv[19:]]", source)
+
+    def test_runtime_workflow_resolves_image_digest_and_publishes_tagged_assets(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "build-container-runtime.yml").read_text(encoding="utf-8")
+
+        self.assertIn("docker image inspect", workflow)
+        self.assertIn("CFW_WINE_IMAGE", workflow)
+        self.assertIn("cfw-runtime-v*", workflow)
+        self.assertIn("gh release upload", workflow)
+        self.assertIn("cfw-runtime-manifest-wine-", workflow)
 
     def test_profile_fragments_are_additive(self) -> None:
         profile_dir = ROOT / "compat" / "profile.d"

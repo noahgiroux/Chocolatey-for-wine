@@ -29,24 +29,28 @@ inputs. It requires all of the following before producing an artifact:
 
 - the full CFW installer exits successfully and Wine settles;
 - Windows `pwsh.exe` executes a command and creates a filesystem side effect;
-- pinned Synchro v4.2.0 wrappers execute through both x64 and x86 paths;
-- canonical Chocolatey reports its version;
-- Chocolatey's in-process PowerShell host is disabled;
-- the final Wine server settles cleanly.
+- pinned Synchro v4.2.0 x64 and x86 wrappers each create a filesystem side effect;
+- canonical Chocolatey reports its version and its in-process PowerShell host is
+  disabled and verified;
+- a CFW-controlled local Chocolatey package installs and uninstalls cleanly;
+- Wine settles after every critical runtime proof.
 
 A successful build produces:
 
 ```text
-cfw-runtime-prefix.tar.gz
-cfw-runtime-prefix.tar.gz.sha256
-runtime.json
+cfw-runtime-prefix-wine-<version>.tar.gz
+cfw-runtime-prefix-wine-<version>.tar.gz.sha256
+cfw-runtime-evidence-wine-<version>.json
+cfw-runtime-manifest-wine-<version>.json
 logs/
 ```
 
-`runtime.json` records the Wine builder version, PowerShell, Synchro, Chocolatey,
-and every required return code. The archive is a complete prepared prefix, not a
-loose file overlay. A consumer must seed it into a fresh prefix before running
-application modules.
+`runtime.json` records the exact Wine image digest and observed Wine version,
+CFW source revision, lock-file digest, runtime proof return codes, and sentinel
+hashes. The detached manifest binds that evidence to the archive name, digest,
+and byte size. The archive is a complete prepared prefix, not a loose file
+overlay. A consumer must verify the manifest, evidence, archive hash, and Wine
+digest before replacing a fresh prefix.
 
 The CI matrix currently evaluates the published Cage Wine 9.0, 10.0, and 11.0
 runtime images. Only a candidate that passes every runtime proof may be released.
@@ -62,16 +66,10 @@ Cage and similar builders should:
 - keep application-specific package selection and orchestration outside CFW;
 - never reproduce CFW's CLR, WMF, GAC, or Synchro installation internals.
 
-The CFW profile fragments remain additive for consumers that need to compose
-additional application or user policy:
-
-```text
-20-chocolatey.ps1
-30-cfw-winetricks.ps1
-40-cfw-command-adapters.ps1
-80-application.ps1
-90-user.ps1
-```
+The CFW-owned root loader preserves the installer-generated profile, then loads
+CFW’s ordered fragments. Consumers may add application-specific fragments only
+under `C:\ProgramData\Chocolatey-for-wine\application-profile.d`; they must not
+replace CFW’s profile loader, fragments, or Synchro wrappers.
 
 ## Rejected package-host shortcut
 

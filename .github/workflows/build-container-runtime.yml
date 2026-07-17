@@ -3,7 +3,10 @@ name: Build CFW Container Runtime
 on:
   push:
     branches:
+      - main
       - agent/integrated-container-runtime
+    tags:
+      - cfw-runtime-v*
     paths:
       - 'compat/**'
       - 'choc_install.ps1'
@@ -35,8 +38,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Pull Cage Wine runtime
-        run: docker pull "$IMAGE"
+      - name: Pull and resolve Cage Wine runtime
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE"
+          image_ref="$(docker image inspect "$IMAGE" --format '{{index .RepoDigests 0}}')"
+          test -n "$image_ref"
+          printf 'image=%s\n' "$image_ref" >> "$GITHUB_OUTPUT"
 
       - name: Build CFW runtime prefix
         id: build
@@ -48,6 +58,11 @@ jobs:
           docker run --rm \
             -e WINEPREFIX=/out/prefix \
             -e CFW_BUILD_CACHE=/out/cache \
+            -e CFW_WINE_IMAGE='${{ steps.image.outputs.image }}' \
+            -e CFW_SOURCE_REVISION='${{ github.sha }}' \
+            -e CFW_RUNTIME_ARTIFACT_NAME='cfw-runtime-prefix-wine-${{ matrix.wine }}' \
+            -e CFW_RUNTIME_EVIDENCE_NAME='cfw-runtime-evidence-wine-${{ matrix.wine }}.json' \
+            -e CFW_RUNTIME_MANIFEST_NAME='cfw-runtime-manifest-wine-${{ matrix.wine }}.json' \
             -v "$PWD:/src:ro" \
             -v "$out:/out" \
             "$IMAGE" \
@@ -64,25 +79,27 @@ jobs:
         run: |
           out="$PWD/dist/wine-${{ matrix.wine }}"
           echo '### CFW runtime build — Wine ${{ matrix.wine }}' >> "$GITHUB_STEP_SUMMARY"
-          if [ -f "$out/runtime.json" ]; then
+          if [ -f "$out/cfw-runtime-evidence-wine-${{ matrix.wine }}.json" ]; then
             echo '```json' >> "$GITHUB_STEP_SUMMARY"
-            cat "$out/runtime.json" >> "$GITHUB_STEP_SUMMARY"
+            cat "$out/cfw-runtime-evidence-wine-${{ matrix.wine }}.json" >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
           else
             echo 'No passing runtime metadata was produced.' >> "$GITHUB_STEP_SUMMARY"
           fi
-          if [ -f "$out/logs/pwsh-probe.log" ]; then
-            echo '#### PowerShell probe' >> "$GITHUB_STEP_SUMMARY"
-            echo '```text' >> "$GITHUB_STEP_SUMMARY"
-            tail -80 "$out/logs/pwsh-probe.log" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$out/cfw-runtime-manifest-wine-${{ matrix.wine }}.json" ]; then
+            echo '#### Release manifest' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$out/cfw-runtime-manifest-wine-${{ matrix.wine }}.json" >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
           fi
-          if [ -f "$out/logs/installer.log" ]; then
-            echo '#### Installer tail' >> "$GITHUB_STEP_SUMMARY"
-            echo '```text' >> "$GITHUB_STEP_SUMMARY"
-            tail -80 "$out/logs/installer.log" >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-          fi
+          for log in pwsh-probe installer choco-smoke-install choco-smoke-uninstall; do
+            if [ -f "$out/logs/${log}.log" ]; then
+              echo "#### ${log}" >> "$GITHUB_STEP_SUMMARY"
+              echo '```text' >> "$GITHUB_STEP_SUMMARY"
+              tail -80 "$out/logs/${log}.log" >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
 
       - name: Upload runtime candidate
         if: always()
@@ -94,7 +111,61 @@ jobs:
           compression-level: 0
           path: |
             dist/wine-${{ matrix.wine }}/workflow.log
-            dist/wine-${{ matrix.wine }}/runtime.json
-            dist/wine-${{ matrix.wine }}/cfw-runtime-prefix.tar.gz
-            dist/wine-${{ matrix.wine }}/cfw-runtime-prefix.tar.gz.sha256
+            dist/wine-${{ matrix.wine }}/cfw-runtime-evidence-wine-${{ matrix.wine }}.json
+            dist/wine-${{ matrix.wine }}/cfw-runtime-manifest-wine-${{ matrix.wine }}.json
+            dist/wine-${{ matrix.wine }}/cfw-runtime-prefix-wine-${{ matrix.wine }}.tar.gz
+            dist/wine-${{ matrix.wine }}/cfw-runtime-prefix-wine-${{ matrix.wine }}.tar.gz.sha256
             dist/wine-${{ matrix.wine }}/logs
+
+  publish:
+    name: publish prepared runtimes
+    if: startsWith(github.ref, 'refs/tags/cfw-runtime-v')
+    needs: runtime
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download proven runtime artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cfw-runtime-wine-*
+          path: release-assets
+          merge-multiple: false
+
+      - name: Validate release evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t manifests < <(find release-assets -name 'cfw-runtime-manifest-wine-*.json' -type f | sort)
+          test "${#manifests[@]}" -eq 3
+          for manifest in "${manifests[@]}"; do
+            python3 - "$manifest" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          assert manifest["schemaVersion"] == "cfw.prepared-runtime-manifest/v1"
+          assert manifest["status"] == "passed"
+          assert manifest["wine"]["image"].startswith("ghcr.io/pelagians/cage-wine@sha256:")
+          assert len(manifest["archive"]["sha256"]) == 64
+          assert len(manifest["runtimeEvidence"]["sha256"]) == 64
+          PY
+          done
+
+      - name: Publish tagged prepared runtime assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          mapfile -t assets < <(find release-assets -type f \( -name '*.tar.gz' -o -name '*.tar.gz.sha256' -o -name 'cfw-runtime-evidence-wine-*.json' -o -name 'cfw-runtime-manifest-wine-*.json' \) | sort)
+          test "${#assets[@]}" -eq 12
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${assets[@]}" --clobber
+          else
+            gh release create "$tag" "${assets[@]}" \
+              --title "$tag" \
+              --notes 'Prepared CFW compatibility runtime assets. Each manifest binds its prefix archive to exact inputs, source revision, Wine image digest, and runtime evidence.'
+          fi
