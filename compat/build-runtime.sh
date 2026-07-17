@@ -9,14 +9,38 @@ payload_cache="$work/choc_install_files"
 release_root="$work/release"
 release_dir="$release_root/Chocolatey-for-wine"
 logs="$output_root/logs"
-metadata="$output_root/runtime.json"
+evidence_name="${CFW_RUNTIME_EVIDENCE_NAME:-runtime.json}"
+manifest_name="${CFW_RUNTIME_MANIFEST_NAME:-cfw-runtime-manifest.json}"
+metadata="$output_root/$evidence_name"
+manifest="$output_root/$manifest_name"
+runtime_inputs="$repo_root/compat/runtime-inputs.json"
+artifact_name="${CFW_RUNTIME_ARTIFACT_NAME:-cfw-runtime-prefix}"
 stage="setup"
+
+for output_name in "$artifact_name" "$evidence_name" "$manifest_name"; do
+  case "$output_name" in
+    *[!A-Za-z0-9._-]* | '')
+      echo "[cfw] invalid runtime output name: $output_name" >&2
+      exit 64
+      ;;
+  esac
+done
+
+[[ -f "$runtime_inputs" ]] || {
+  echo "[cfw] runtime inputs file is missing: $runtime_inputs" >&2
+  exit 65
+}
 
 mkdir -p "$output_root" "$payload_cache" "$release_root" "$logs"
 export WINEPREFIX="$wine_prefix"
 export WINEARCH=win64
 unset CFW_CONTAINER_BUILDER
 unset WINEDLLOVERRIDES
+
+CFW_RUNTIME_INPUTS_SHA256="$(sha256sum "$runtime_inputs" | awk '{print $1}')"
+CFW_SOURCE_REVISION="${CFW_SOURCE_REVISION:-$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || printf unknown)}"
+CFW_WINE_IMAGE="${CFW_WINE_IMAGE:-unresolved}"
+export CFW_RUNTIME_INPUTS_SHA256 CFW_SOURCE_REVISION CFW_WINE_IMAGE
 
 on_error() {
   rc="$?"
@@ -30,29 +54,54 @@ mark_stage() {
   printf '[cfw] stage=%s\n' "$stage" | tee -a "$logs/build-stages.log"
 }
 
-CFW_RELEASE_URL='https://github.com/noahgiroux/Chocolatey-for-wine/releases/download/v0.5c.755-noah.6/Chocolatey-for-wine.7z'
-CFW_RELEASE_SHA256='25c2e3cd544c7f83e9c196a5b8b0f98e020b4f5e24f19de30ea6ceec585d0792'
-CHOCOLATEY_URL='https://community.chocolatey.org/api/v2/package/chocolatey/2.6.0'
-CHOCOLATEY_SHA256='f13a2af9cd4ec2c9b58d81861bc95ad7151e3a871d8f758dffa72a996a3792d8'
-POWERSHELL_URL='https://github.com/PowerShell/PowerShell/releases/download/v7.5.5/PowerShell-7.5.5-win-x64.msi'
-POWERSHELL_SHA256='b2ac56b7639e2b259bb78bab077555d76f2a5eec6c516690d63de36bc1d6ca25'
-DOTNET_URL='https://download.visualstudio.microsoft.com/download/pr/7afca223-55d2-470a-8edc-6a1739ae3252/abd170b4b0ec15ad0222a809b761a036/ndp48-x86-x64-allos-enu.exe'
-DOTNET_SHA256='95889d6de3f2070c07790ad6cf2000d33d9a1bdfc6a381725ab82ab1c314fd53'
-MSCOREE_URL='https://catalog.s.download.windowsupdate.com/msdownload/update/software/crup/2010/06/windows6.1-kb958488-v6001-x64_a137e4f328f01146dfa75d7b5a576090dee948dc.msu'
-MSCOREE_SHA256='a5f4243ce8b07c9222284fd8ff6f7e742d934c57c89de9cab5d88c74402264e3'
-D3D64_URL='https://github.com/mozilla/fxc2/raw/master/dll/d3dcompiler_47.dll'
-D3D64_SHA256='4432bbd1a390874f3f0a503d45cc48d346abc3a8c0213c289f4b615bf0ee84f3'
-D3D32_URL='https://github.com/mozilla/fxc2/raw/master/dll/d3dcompiler_47_32.dll'
-D3D32_SHA256='2ad0d4987fc4624566b190e747c9d95038443956ed816abfd1e2d389b5ec0851'
-CONEMU_URL='https://github.com/Maximus5/ConEmu/releases/download/v23.07.24/ConEmuPack.230724.7z'
-CONEMU_SHA256='2a9b98ebecaede62665ef427b05b3a5ccdac7bd3202414fc0f4c10825b4f4ea2'
-SEVENZIP_EXTRACTOR_URL='https://globalcdn.nuget.org/packages/sevenzipextractor.1.0.19.nupkg'
-SEVENZIP_EXTRACTOR_SHA256='c660063da7a343115272de59591597d8cc12d320957b1636a210524d6a67b95b'
-WINDOWS_POWERSHELL_URL='https://catalog.s.download.windowsupdate.com/msdownload/update/software/updt/2009/11/windowsserver2003-kb968930-x64-eng_8ba702aa016e4c5aed581814647f4d55635eff5c.exe'
-WINDOWS_POWERSHELL_SHA256='9f5d24517f860837daaac062e5bf7e6978ceb94e4e9e8567798df6777b56e4c8'
-SYNCHRO_BASE_URL='https://codeberg.org/Synchro/powershell-wrapper-for-wine/releases/download/v4.2.0'
-SYNCHRO64_SHA256='b1d594bd44abc01007b9dd2adea5248f09906fa8d4c6cea7f36a4279e2de91e0'
-SYNCHRO32_SHA256='ca76d774273ffa37053545f8e4ad63c8914461828f1d1eef7a1915c9656fed4c'
+input_value() {
+  local section="$1" field="$2"
+  python3 - "$runtime_inputs" "$section" "$field" <<'PY2'
+import json
+import re
+import sys
+
+path, section, field = sys.argv[1:]
+try:
+    value = json.load(open(path, encoding="utf-8"))["downloads"][section][field]
+except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"invalid runtime input {section}.{field}: {exc}")
+if not isinstance(value, str) or not value:
+    raise SystemExit(f"invalid runtime input {section}.{field}")
+if field == "sha256" and not re.fullmatch(r"[0-9a-f]{64}", value):
+    raise SystemExit(f"invalid runtime input digest {section}.{field}")
+print(value)
+PY2
+}
+
+checkout_source_sha256() {
+  local source_name="$1"
+  python3 - "$runtime_inputs" "$source_name" <<'PY2'
+import json
+import re
+import sys
+
+path, source_name = sys.argv[1:]
+try:
+    value = json.load(open(path, encoding="utf-8"))["checkoutSources"][source_name]["sha256"]
+except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"invalid checkout source {source_name}: {exc}")
+if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+    raise SystemExit(f"invalid checkout source digest {source_name}")
+print(value)
+PY2
+}
+
+verify_checkout_source() {
+  local source_name="$1" source_path="$2" expected actual
+  expected="$(checkout_source_sha256 "$source_name")"
+  actual="$(sha256sum "$source_path" | awk '{print $1}')"
+  if [[ "$actual" != "$expected" ]]; then
+    printf '[cfw] checkout source checksum mismatch: %s\nexpected=%s\nactual=%s\n' \
+      "$source_name" "$expected" "$actual" >&2
+    return 69
+  fi
+}
 
 fetch_verified() {
   local url="$1" expected="$2" destination="$3"
@@ -71,25 +120,83 @@ fetch_verified() {
   mv -f "$destination.part" "$destination"
 }
 
+fetch_input() {
+  local input_name="$1" destination="$2"
+  fetch_verified "$(input_value "$input_name" url)" "$(input_value "$input_name" sha256)" "$destination"
+}
+
+write_cfw_profile_loader() {
+  local pwsh_dir="$1" fragment_root legacy_profile profile
+  fragment_root="$wine_prefix/drive_c/ProgramData/Chocolatey-for-wine/profile.d"
+  legacy_profile="$pwsh_dir/cfw-legacy-profile.ps1"
+  profile="$pwsh_dir/profile.ps1"
+  mkdir -p "$fragment_root"
+  cp -f "$repo_root"/compat/profile.d/*.ps1 "$fragment_root/"
+  if [[ -f "$profile" && ! -f "$legacy_profile" ]]; then
+    mv "$profile" "$legacy_profile"
+  fi
+  cat > "$profile" <<'PS1'
+$legacyProfile = Join-Path $PSScriptRoot 'cfw-legacy-profile.ps1'
+if (Test-Path -LiteralPath $legacyProfile -PathType Leaf) { . $legacyProfile }
+$cfwProfileRoot = Join-Path $env:ProgramData 'Chocolatey-for-wine\profile.d'
+if (Test-Path -LiteralPath $cfwProfileRoot -PathType Container) {
+    Get-ChildItem -LiteralPath $cfwProfileRoot -Filter '*.ps1' -File | Sort-Object -Property Name | ForEach-Object { . $_.FullName }
+}
+$cfwApplicationProfileRoot = Join-Path $env:ProgramData 'Chocolatey-for-wine\application-profile.d'
+if (Test-Path -LiteralPath $cfwApplicationProfileRoot -PathType Container) {
+    Get-ChildItem -LiteralPath $cfwApplicationProfileRoot -Filter '*.ps1' -File | Sort-Object -Property Name | ForEach-Object { . $_.FullName }
+}
+Remove-Variable legacyProfile, cfwProfileRoot, cfwApplicationProfileRoot -ErrorAction SilentlyContinue
+PS1
+  test -s "$profile"
+  test -f "$fragment_root/20-chocolatey.ps1"
+  test -f "$fragment_root/30-cfw-winetricks.ps1"
+  test -f "$fragment_root/40-cfw-command-adapters.ps1"
+}
+
+build_smoke_package() {
+  local smoke_feed="$1" smoke_package="$smoke_feed/cfw-runtime-smoke.0.1.0.nupkg"
+  mkdir -p "$smoke_feed"
+  python3 - "$smoke_package" <<'PY2'
+from pathlib import Path
+import sys
+import zipfile
+
+archive = Path(sys.argv[1])
+install = r'''$marker = Join-Path $env:ProgramData 'CFW\RuntimeProbe\chocolatey-install.txt'
+[IO.Directory]::CreateDirectory((Split-Path -Parent $marker)) | Out-Null
+[IO.File]::WriteAllText($marker, 'installed')
+'''
+uninstall = r'''$marker = Join-Path $env:ProgramData 'CFW\RuntimeProbe\chocolatey-uninstall.txt'
+[IO.Directory]::CreateDirectory((Split-Path -Parent $marker)) | Out-Null
+[IO.File]::WriteAllText($marker, 'uninstalled')
+'''
+nuspec = '''<?xml version="1.0"?>
+<package><metadata><id>cfw-runtime-smoke</id><version>0.1.0</version><title>CFW runtime smoke</title><authors>CFW</authors><description>Deterministic CFW runtime lifecycle proof.</description></metadata></package>
+'''
+with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as package:
+    package.writestr("cfw-runtime-smoke.nuspec", nuspec)
+    package.writestr("tools/chocolateyinstall.ps1", install)
+    package.writestr("tools/chocolateyuninstall.ps1", uninstall)
+PY2
+  test -s "$smoke_package"
+}
+
 mark_stage fetch-inputs
-release_archive="$work/Chocolatey-for-wine.7z"
-fetch_verified "$CFW_RELEASE_URL" "$CFW_RELEASE_SHA256" "$release_archive"
+release_archive="$work/$(input_value cfwRelease filename)"
+fetch_input cfwRelease "$release_archive"
 rm -rf "$release_root"
 mkdir -p "$release_root"
 7z x -y "$release_archive" "-o$release_root" >"$logs/release-extract.log"
 [[ -f "$release_dir/ChoCinstaller_0.5c.755.exe" ]]
+verify_checkout_source choc_install.ps1 "$repo_root/choc_install.ps1"
+verify_checkout_source winetricks.ps1 "$repo_root/winetricks.ps1"
 cp -f "$repo_root/choc_install.ps1" "$release_dir/choc_install.ps1"
 cp -f "$repo_root/winetricks.ps1" "$work/winetricks.ps1"
 
-fetch_verified "$CHOCOLATEY_URL" "$CHOCOLATEY_SHA256" "$payload_cache/chocolatey.2.6.0.nupkg"
-fetch_verified "$POWERSHELL_URL" "$POWERSHELL_SHA256" "$payload_cache/PowerShell-7.5.5-win-x64.msi"
-fetch_verified "$DOTNET_URL" "$DOTNET_SHA256" "$payload_cache/ndp48-x86-x64-allos-enu.exe"
-fetch_verified "$MSCOREE_URL" "$MSCOREE_SHA256" "$payload_cache/windows6.1-kb958488-v6001-x64_a137e4f328f01146dfa75d7b5a576090dee948dc.msu"
-fetch_verified "$D3D64_URL" "$D3D64_SHA256" "$payload_cache/d3dcompiler_47.dll"
-fetch_verified "$D3D32_URL" "$D3D32_SHA256" "$payload_cache/d3dcompiler_47_32.dll"
-fetch_verified "$CONEMU_URL" "$CONEMU_SHA256" "$payload_cache/ConEmuPack.230724.7z"
-fetch_verified "$SEVENZIP_EXTRACTOR_URL" "$SEVENZIP_EXTRACTOR_SHA256" "$payload_cache/sevenzipextractor.1.0.19.nupkg"
-fetch_verified "$WINDOWS_POWERSHELL_URL" "$WINDOWS_POWERSHELL_SHA256" "$payload_cache/windowsserver2003-kb968930-x64-eng_8ba702aa016e4c5aed581814647f4d55635eff5c.exe"
+for input_name in chocolatey powershell dotnet mscoree d3d64 d3d32 conemu sevenZipExtractor windowsPowerShell; do
+  fetch_input "$input_name" "$payload_cache/$(input_value "$input_name" filename)"
+done
 
 mark_stage initialize-prefix
 rm -rf "$wine_prefix"
@@ -114,7 +221,7 @@ set +e
 timeout --kill-after=30s "${CFW_INSTALL_TIMEOUT:-7200s}" wine "$installer_win" /s /q >"$logs/installer.log" 2>&1
 installer_rc="$?"
 timeout --kill-after=15s 300s wineserver -w >>"$logs/installer.log" 2>&1
-settle_rc="$?"
+installer_settle_rc="$?"
 set -e
 
 pwsh="$wine_prefix/drive_c/Program Files/PowerShell/7/pwsh.exe"
@@ -122,8 +229,8 @@ choco="$wine_prefix/drive_c/ProgramData/chocolatey/bin/choco.exe"
 wrapper64="$wine_prefix/drive_c/windows/system32/WindowsPowerShell/v1.0/powershell.exe"
 wrapper32="$wine_prefix/drive_c/windows/syswow64/WindowsPowerShell/v1.0/powershell.exe"
 
-if [[ "$installer_rc" -ne 0 || "$settle_rc" -ne 0 ]]; then
-  printf 'CFW installer failed: installer=%s settle=%s\n' "$installer_rc" "$settle_rc" >&2
+if [[ "$installer_rc" -ne 0 || "$installer_settle_rc" -ne 0 ]]; then
+  printf 'CFW installer failed: installer=%s settle=%s\n' "$installer_rc" "$installer_settle_rc" >&2
   tail -160 "$logs/installer.log" >&2 || true
   exit 70
 fi
@@ -134,99 +241,168 @@ fi
 
 mark_stage prove-pwsh
 probe_dir="$wine_prefix/drive_c/ProgramData/CFW/RuntimeProbe"
-probe_marker="$probe_dir/pwsh.txt"
+pwsh_marker="$probe_dir/pwsh.txt"
 mkdir -p "$probe_dir"
-rm -f "$probe_marker"
-probe_marker_win="$(winepath -w "$probe_marker")"
+rm -f "$pwsh_marker"
+pwsh_marker_win="$(winepath -w "$pwsh_marker")"
 set +e
 timeout --kill-after=15s 300s wine "$pwsh" -NoLogo -NoProfile -NonInteractive -Command \
-  "[IO.File]::WriteAllText('$probe_marker_win',\$PSVersionTable.PSVersion.ToString()); [Console]::Out.WriteLine('[cfw] pwsh=' + \$PSVersionTable.PSVersion.ToString())" \
+  "[IO.File]::WriteAllText('$pwsh_marker_win',\$PSVersionTable.PSVersion.ToString()); [Console]::Out.WriteLine('[cfw] pwsh=' + \$PSVersionTable.PSVersion.ToString())" \
   >"$logs/pwsh-probe.log" 2>&1
 pwsh_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/pwsh-probe.log" 2>&1
 pwsh_settle_rc="$?"
 set -e
-if [[ "$pwsh_rc" -ne 0 || "$pwsh_settle_rc" -ne 0 || ! -s "$probe_marker" ]]; then
-  printf 'PowerShell runtime proof failed: process=%s settle=%s marker=%s\n' "$pwsh_rc" "$pwsh_settle_rc" "$probe_marker" >&2
+if [[ "$pwsh_rc" -ne 0 || "$pwsh_settle_rc" -ne 0 || ! -s "$pwsh_marker" ]]; then
+  printf 'PowerShell runtime proof failed: process=%s settle=%s marker=%s\n' "$pwsh_rc" "$pwsh_settle_rc" "$pwsh_marker" >&2
   cat "$logs/pwsh-probe.log" >&2 || true
   exit 70
 fi
 
 mark_stage install-synchro
 synchro_cache="$work/synchro-v4.2.0"
-fetch_verified "$SYNCHRO_BASE_URL/powershell64.exe" "$SYNCHRO64_SHA256" "$synchro_cache/powershell64.exe"
-fetch_verified "$SYNCHRO_BASE_URL/powershell32.exe" "$SYNCHRO32_SHA256" "$synchro_cache/powershell32.exe"
+fetch_input synchro64 "$synchro_cache/powershell64.exe"
+fetch_input synchro32 "$synchro_cache/powershell32.exe"
 mkdir -p "$(dirname "$wrapper64")" "$(dirname "$wrapper32")"
 cp -f "$synchro_cache/powershell64.exe" "$wrapper64"
 cp -f "$synchro_cache/powershell32.exe" "$wrapper32"
+write_cfw_profile_loader "$(dirname "$pwsh")"
 
 mark_stage prove-runtime
 choco_win='C:\ProgramData\chocolatey\bin\choco.exe'
+synchro64_marker="$probe_dir/synchro-x64.txt"
+synchro32_marker="$probe_dir/synchro-x86.txt"
+smoke_install_marker="$probe_dir/chocolatey-install.txt"
+smoke_uninstall_marker="$probe_dir/chocolatey-uninstall.txt"
+rm -f "$synchro64_marker" "$synchro32_marker" "$smoke_install_marker" "$smoke_uninstall_marker"
+synchro64_marker_win="$(winepath -w "$synchro64_marker")"
+synchro32_marker_win="$(winepath -w "$synchro32_marker")"
+smoke_feed="$work/smoke-feed"
+build_smoke_package "$smoke_feed"
+smoke_feed_win="$(winepath -w "$smoke_feed")"
+
 set +e
 timeout --kill-after=15s 300s wine "$choco_win" feature disable --name=powershellHost >"$logs/choco-feature-policy.log" 2>&1
 feature_rc="$?"
+timeout --kill-after=10s 120s wineserver -w >>"$logs/choco-feature-policy.log" 2>&1
+feature_settle_rc="$?"
+timeout --kill-after=15s 300s wine "$choco_win" feature list --limit-output >"$logs/choco-feature-status.log" 2>&1
+feature_status_command_rc="$?"
+grep -Eiq '^powershellHost\|(disabled|false)$' "$logs/choco-feature-status.log"
+feature_status_rc="$?"
 timeout --kill-after=15s 300s wine "$choco_win" --version >"$logs/choco-version.log" 2>&1
 choco_rc="$?"
-timeout --kill-after=15s 300s wine "$wrapper64" -NoLogo -NonInteractive -Command 'Write-Output "[cfw] synchro-x64-ok"' >"$logs/synchro-x64.log" 2>&1
+timeout --kill-after=15s 300s wine "$wrapper64" -NoLogo -NoProfile -NonInteractive -Command "[IO.File]::WriteAllText('$synchro64_marker_win', 'synchro-x64')" >"$logs/synchro-x64.log" 2>&1
 synchro64_rc="$?"
-timeout --kill-after=15s 300s wine "$wrapper32" -NoLogo -NonInteractive -Command 'Write-Output "[cfw] synchro-x86-ok"' >"$logs/synchro-x86.log" 2>&1
+timeout --kill-after=10s 120s wineserver -w >>"$logs/synchro-x64.log" 2>&1
+synchro64_settle_rc="$?"
+timeout --kill-after=15s 300s wine "$wrapper32" -NoLogo -NoProfile -NonInteractive -Command "[IO.File]::WriteAllText('$synchro32_marker_win', 'synchro-x86')" >"$logs/synchro-x86.log" 2>&1
 synchro32_rc="$?"
-timeout --kill-after=10s 120s wineserver -w >"$logs/final-settle.log" 2>&1
-final_settle_rc="$?"
+timeout --kill-after=10s 120s wineserver -w >>"$logs/synchro-x86.log" 2>&1
+synchro32_settle_rc="$?"
+timeout --kill-after=30s 600s wine "$choco_win" install cfw-runtime-smoke -y --source "$smoke_feed_win" >"$logs/choco-smoke-install.log" 2>&1
+smoke_install_rc="$?"
+timeout --kill-after=10s 120s wineserver -w >>"$logs/choco-smoke-install.log" 2>&1
+smoke_install_settle_rc="$?"
+timeout --kill-after=30s 600s wine "$choco_win" uninstall cfw-runtime-smoke -y >"$logs/choco-smoke-uninstall.log" 2>&1
+smoke_uninstall_rc="$?"
+timeout --kill-after=10s 120s wineserver -w >>"$logs/choco-smoke-uninstall.log" 2>&1
+smoke_uninstall_settle_rc="$?"
 set -e
 
-set +e
-tr -d '\r' <"$logs/synchro-x64.log" | grep -Fqx '[cfw] synchro-x64-ok'
-synchro64_marker_rc="$?"
-tr -d '\r' <"$logs/synchro-x86.log" | grep -Fqx '[cfw] synchro-x86-ok'
-synchro32_marker_rc="$?"
-set -e
-
-python3 - "$metadata" "$installer_rc" "$settle_rc" "$pwsh_rc" "$pwsh_settle_rc" "$feature_rc" "$choco_rc" "$synchro64_rc" "$synchro32_rc" "$synchro64_marker_rc" "$synchro32_marker_rc" "$final_settle_rc" <<'PY'
+python3 - "$metadata" \
+  "$installer_rc" "$installer_settle_rc" "$pwsh_rc" "$pwsh_settle_rc" \
+  "$feature_rc" "$feature_settle_rc" "$feature_status_command_rc" "$feature_status_rc" "$choco_rc" \
+  "$synchro64_rc" "$synchro64_settle_rc" "$synchro32_rc" "$synchro32_settle_rc" \
+  "$smoke_install_rc" "$smoke_install_settle_rc" "$smoke_uninstall_rc" "$smoke_uninstall_settle_rc" \
+  "$pwsh_marker" "$synchro64_marker" "$synchro32_marker" "$smoke_install_marker" "$smoke_uninstall_marker" <<'PY2'
+import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-values = [int(value) for value in sys.argv[2:]]
+values = [int(value) for value in sys.argv[2:19]]
+markers = [Path(value) for value in sys.argv[19:]]
 keys = [
     "installer", "installerSettle", "pwsh", "pwshSettle", "featurePolicy",
-    "chocolateyVersion", "synchroX64", "synchroX86", "synchroX64Marker",
-    "synchroX86Marker", "finalSettle",
+    "featurePolicySettle", "featurePolicyStatusCommand", "featurePolicyStatus",
+    "chocolateyVersion", "synchroX64", "synchroX64Settle", "synchroX86",
+    "synchroX86Settle", "smokeInstall", "smokeInstallSettle", "smokeUninstall",
+    "smokeUninstallSettle",
 ]
 return_codes = dict(zip(keys, values))
+marker_hashes = {
+    marker.name: hashlib.sha256(marker.read_bytes()).hexdigest()
+    for marker in markers
+    if marker.is_file() and marker.stat().st_size > 0
+}
 checks = {
     "installer": values[0] == 0 and values[1] == 0,
-    "pwsh": values[2] == 0 and values[3] == 0,
-    "chocolatey": values[5] == 0,
-    "synchroX64": values[6] == 0 and values[8] == 0,
-    "synchroX86": values[7] == 0 and values[9] == 0,
-    "finalSettle": values[10] == 0,
+    "pwsh": values[2] == 0 and values[3] == 0 and "pwsh.txt" in marker_hashes,
+    "featurePolicy": values[4] == 0 and values[5] == 0 and values[6] == 0 and values[7] == 0,
+    "chocolatey": values[8] == 0,
+    "synchroX64": values[9] == 0 and values[10] == 0 and "synchro-x64.txt" in marker_hashes,
+    "synchroX86": values[11] == 0 and values[12] == 0 and "synchro-x86.txt" in marker_hashes,
+    "chocolateyLifecycle": values[13] == 0 and values[14] == 0 and values[15] == 0 and values[16] == 0 and "chocolatey-install.txt" in marker_hashes and "chocolatey-uninstall.txt" in marker_hashes,
 }
 record = {
-    "schemaVersion": "cfw.runtime-build/v1",
+    "schemaVersion": "cfw.runtime-build/v2",
     "provider": "cfw-chocolatey-runtime",
     "runtimeId": "cfw-chocolatey-2.6.0-powershell-7.5.5-synchro-4.2.0",
     "status": "passed" if all(checks.values()) else "failed",
-    "wineVersion": subprocess.run(["wine", "--version"], text=True, capture_output=True).stdout.strip(),
+    "wine": {"image": os.environ["CFW_WINE_IMAGE"], "version": subprocess.run(["wine", "--version"], text=True, capture_output=True).stdout.strip(), "architecture": "win64"},
+    "sourceRevision": os.environ["CFW_SOURCE_REVISION"],
+    "runtimeInputsSha256": os.environ["CFW_RUNTIME_INPUTS_SHA256"],
+    "profileLoader": {"path": "C:\\Program Files\\PowerShell\\7\\profile.ps1", "applicationExtensionPath": "C:\\ProgramData\\Chocolatey-for-wine\\application-profile.d"},
     "powershell": "7.5.5",
     "synchro": "v4.2.0",
     "chocolatey": "2.6.0",
     "checks": checks,
     "returnCodes": return_codes,
+    "markerSha256": marker_hashes,
 }
 path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 if record["status"] != "passed":
     raise SystemExit(70)
-PY
+PY2
 
 mark_stage package-runtime
 mkdir -p "$wine_prefix/.cfw"
 cp -f "$metadata" "$wine_prefix/.cfw/runtime.json"
-archive="$output_root/cfw-runtime-prefix.tar.gz"
+archive="$output_root/$artifact_name.tar.gz"
 tar -C "$wine_prefix" -czf "$archive.part" .
 mv -f "$archive.part" "$archive"
-sha256sum "$archive" >"$archive.sha256"
+archive_sha256="$(sha256sum "$archive" | awk '{print $1}')"
+printf '%s  %s\n' "$archive_sha256" "$(basename "$archive")" > "$archive.sha256"
+
+python3 - "$metadata" "$manifest" "$archive" "$archive_sha256" <<'PY2'
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+
+evidence_path = Path(sys.argv[1])
+manifest_path = Path(sys.argv[2])
+archive_path = Path(sys.argv[3])
+archive_sha256 = sys.argv[4]
+evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+manifest = {
+    "schemaVersion": "cfw.prepared-runtime-manifest/v1",
+    "runtimeId": evidence["runtimeId"],
+    "contract": "cfw.compatibility-contract/v3",
+    "archive": {"filename": archive_path.name, "sha256": archive_sha256, "bytes": archive_path.stat().st_size},
+    "runtimeEvidence": {"filename": evidence_path.name, "sha256": hashlib.sha256(evidence_path.read_bytes()).hexdigest()},
+    "sourceRevision": evidence["sourceRevision"],
+    "runtimeInputsSha256": evidence["runtimeInputsSha256"],
+    "wine": evidence["wine"],
+    "profileLoader": evidence["profileLoader"],
+    "status": evidence["status"],
+}
+manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY2
 mark_stage complete
 printf '[cfw] runtime artifact ready: %s\n' "$archive"

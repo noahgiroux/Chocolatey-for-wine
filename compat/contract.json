@@ -4,6 +4,7 @@
   "mode": "prepared-prefix-runtime",
   "build": {
     "script": "build-runtime.sh",
+    "inputs": "runtime-inputs.json",
     "wineCandidates": [
       "9.0",
       "10.0",
@@ -13,9 +14,11 @@
     "requiredProofs": [
       "cfw-installer",
       "windows-pwsh-side-effect",
-      "synchro-x64-marker",
-      "synchro-x86-marker",
+      "synchro-x64-side-effect",
+      "synchro-x86-side-effect",
+      "chocolatey-feature-policy",
       "chocolatey-version",
+      "chocolatey-lifecycle",
       "wineserver-settle"
     ]
   },
@@ -23,6 +26,7 @@
     "kind": "prepared-wine-prefix",
     "archive": "cfw-runtime-prefix.tar.gz",
     "evidence": "runtime.json",
+    "manifest": "cfw-runtime-manifest.json",
     "seedSemantics": "replace-fresh-prefix",
     "mustPrecedeApplicationModules": true,
     "runtimeCompatibility": "declared-in-evidence"
@@ -46,6 +50,7 @@
     "dotnetAndClrCompatibility": "cfw",
     "powershellRuntime": "cfw-runtime-artifact",
     "windowsPowerShellShim": "cfw-runtime-artifact",
+    "profileLoader": "cfw-runtime-artifact",
     "chocolateyBootstrap": "cfw",
     "packageExecutionHost": "cfw-runtime-artifact",
     "wineCompatibilityFragments": "cfw",
@@ -59,6 +64,8 @@
     "consumerMustSeedArtifactBeforeOtherModules": true,
     "consumerMustVerifyArchiveDigest": true,
     "consumerMustVerifyRuntimeEvidence": true,
+    "consumerMustVerifyRuntimeManifest": true,
+    "consumerMustNotReplaceCfwProfileLoader": true,
     "chocolateyInProcessPowerShellHost": false,
     "desktopInstallerMayRetainLegacyBehavior": true
   },
