@@ -61,13 +61,14 @@ class LayerContractTests(unittest.TestCase):
             payload = inputs["downloads"][name]
             self.assertTrue(payload["url"].startswith("https://"), name)
             self.assertRegex(payload["sha256"], r"^[0-9a-f]{64}$", name)
-        for source_name in ("choc_install.ps1", "winetricks.ps1"):
-            self.assertRegex(inputs["checkoutSources"][source_name]["sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(set(inputs["checkoutSources"]), {"choc_install.ps1"})
+        self.assertRegex(inputs["checkoutSources"]["choc_install.ps1"]["sha256"], r"^[0-9a-f]{64}$")
 
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
         self.assertIn("runtime-inputs.json", source)
         self.assertIn("CFW_RUNTIME_INPUTS_SHA256", source)
-        self.assertIn("verify_checkout_source", source)
+        self.assertIn("verify_checkout_source choc_install.ps1", source)
+        self.assertNotIn("verify_checkout_source winetricks.ps1", source)
 
     def test_runtime_builder_requires_behavioral_proofs_and_manifest(self) -> None:
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
@@ -78,6 +79,9 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("chocolatey-uninstall.txt", source)
         self.assertIn("featurePolicy", source)
         self.assertIn("CFW_WINE_IMAGE", source)
+        self.assertIn("CFW_SOURCE_REVISION must be the exact source commit", source)
+        self.assertIn("must be a full lowercase Git commit SHA", source)
+        self.assertIn("must be a ghcr.io/pelagians/cage-wine digest", source)
         self.assertIn("CFW_RUNTIME_EVIDENCE_NAME", source)
         self.assertIn("CFW_RUNTIME_MANIFEST_NAME", source)
         self.assertIn("values = [int(value) for value in sys.argv[2:19]]", source)
@@ -89,8 +93,12 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("docker image inspect", workflow)
         self.assertIn("CFW_WINE_IMAGE", workflow)
         self.assertIn("cfw-runtime-v*", workflow)
-        self.assertIn("gh release upload", workflow)
+        self.assertIn("gh release create", workflow)
         self.assertIn("cfw-runtime-manifest-wine-", workflow)
+        self.assertIn("hashlib.sha256", workflow)
+        self.assertIn("GITHUB_SHA", workflow)
+        self.assertIn("release already exists", workflow)
+        self.assertNotIn("--clobber", workflow)
 
     def test_profile_fragments_are_additive(self) -> None:
         profile_dir = ROOT / "compat" / "profile.d"

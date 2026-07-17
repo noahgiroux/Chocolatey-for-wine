@@ -133,23 +133,55 @@ jobs:
           merge-multiple: false
 
       - name: Validate release evidence
+        env:
+          GITHUB_SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t manifests < <(find release-assets -name 'cfw-runtime-manifest-wine-*.json' -type f | sort)
-          test "${#manifests[@]}" -eq 3
-          for manifest in "${manifests[@]}"; do
-            python3 - "$manifest" <<'PY'
+          expected_wines=(9.0 10.0 11.0)
+          for wine in "${expected_wines[@]}"; do
+            mapfile -t manifests < <(find release-assets -name "cfw-runtime-manifest-wine-${wine}.json" -type f | sort)
+            test "${#manifests[@]}" -eq 1
+            python3 - "${manifests[0]}" "$GITHUB_SHA" "$wine" <<'PY'
+          import hashlib
           import json
+          import re
           import sys
           from pathlib import Path
 
-          manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          manifest_path = Path(sys.argv[1])
+          source_revision = sys.argv[2]
+          wine = sys.argv[3]
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          directory = manifest_path.parent
+
+          def sha256(path):
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+          assert manifest_path.name == f"cfw-runtime-manifest-wine-{wine}.json"
           assert manifest["schemaVersion"] == "cfw.prepared-runtime-manifest/v1"
           assert manifest["status"] == "passed"
-          assert manifest["wine"]["image"].startswith("ghcr.io/pelagians/cage-wine@sha256:")
-          assert len(manifest["archive"]["sha256"]) == 64
-          assert len(manifest["runtimeEvidence"]["sha256"]) == 64
+          assert manifest["sourceRevision"] == source_revision
+          assert re.fullmatch(r"[0-9a-f]{40}", source_revision)
+          assert re.fullmatch(
+              r"ghcr\.io/pelagians/cage-wine@sha256:[0-9a-f]{64}",
+              manifest["wine"]["image"],
+          )
+          archive = directory / manifest["archive"]["filename"]
+          evidence = directory / manifest["runtimeEvidence"]["filename"]
+          checksum = directory / f"{archive.name}.sha256"
+          assert archive.name == f"cfw-runtime-prefix-wine-{wine}.tar.gz"
+          assert evidence.name == f"cfw-runtime-evidence-wine-{wine}.json"
+          assert archive.is_file() and evidence.is_file() and checksum.is_file()
+          assert archive.stat().st_size == manifest["archive"]["bytes"]
+          assert sha256(archive) == manifest["archive"]["sha256"]
+          assert sha256(evidence) == manifest["runtimeEvidence"]["sha256"]
+          assert checksum.read_text(encoding="utf-8") == f"{sha256(archive)}  {archive.name}\n"
+          runtime = json.loads(evidence.read_text(encoding="utf-8"))
+          assert runtime["status"] == "passed"
+          assert runtime["sourceRevision"] == source_revision
+          assert runtime["wine"] == manifest["wine"]
+          assert all(runtime["checks"].values())
           PY
           done
 
@@ -163,9 +195,9 @@ jobs:
           mapfile -t assets < <(find release-assets -type f \( -name '*.tar.gz' -o -name '*.tar.gz.sha256' -o -name 'cfw-runtime-evidence-wine-*.json' -o -name 'cfw-runtime-manifest-wine-*.json' \) | sort)
           test "${#assets[@]}" -eq 12
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" "${assets[@]}" --clobber
-          else
-            gh release create "$tag" "${assets[@]}" \
-              --title "$tag" \
-              --notes 'Prepared CFW compatibility runtime assets. Each manifest binds its prefix archive to exact inputs, source revision, Wine image digest, and runtime evidence.'
+            echo "[cfw] release already exists and is immutable: $tag" >&2
+            exit 1
           fi
+          gh release create "$tag" "${assets[@]}" \
+            --title "$tag" \
+            --notes 'Prepared CFW compatibility runtime assets. Each manifest binds its prefix archive to exact inputs, source revision, Wine image digest, and runtime evidence.'
