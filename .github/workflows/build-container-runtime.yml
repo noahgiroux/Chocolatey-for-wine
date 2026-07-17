@@ -73,6 +73,30 @@ jobs:
           echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
           exit "$rc"
 
+      - name: emit failure evidence
+        if: failure() && steps.build.outcome == 'failure'
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$PWD/dist/wine-${{ matrix.wine }}"
+          logs="$out/logs"
+          capture="$out/cfw-public-failure-evidence.txt"
+          {
+            echo "wine=${{ matrix.wine }} build_exit_code=${{ steps.build.outputs.exit_code }}"
+            for name in build-stages winepath-cfw-cache winepath-cfw-installer wineboot installer; do
+              path="$logs/${name}.log"
+              if [ -f "$path" ]; then
+                echo "--- ${name}.log (tail) ---"
+                tail -80 "$path"
+              fi
+            done
+            echo "--- workflow.log (tail) ---"
+            tail -100 "$out/workflow.log" 2>/dev/null || true
+          } > "$capture"
+          evidence_b64="$(head -c 6000 "$capture" | base64 -w0)"
+          echo "::error title=CFW runtime build failed::wine=${{ matrix.wine }} rc=${{ steps.build.outputs.exit_code }} evidence_b64=${evidence_b64}"
+          cat "$capture"
+
       - name: Summarize runtime evidence
         if: always()
         shell: bash
@@ -111,6 +135,7 @@ jobs:
           compression-level: 0
           path: |
             dist/wine-${{ matrix.wine }}/workflow.log
+            dist/wine-${{ matrix.wine }}/cfw-public-failure-evidence.txt
             dist/wine-${{ matrix.wine }}/cfw-runtime-evidence-wine-${{ matrix.wine }}.json
             dist/wine-${{ matrix.wine }}/cfw-runtime-manifest-wine-${{ matrix.wine }}.json
             dist/wine-${{ matrix.wine }}/cfw-runtime-prefix-wine-${{ matrix.wine }}.tar.gz
