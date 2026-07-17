@@ -205,6 +205,10 @@ for input_name in chocolatey powershell dotnet mscoree d3d64 d3d32 conemu sevenZ
 done
 
 mark_stage initialize-prefix
+# Cage Wine initializes fresh prefixes with these overrides to prevent Mono/HTML
+# first-run setup from blocking wineboot. Clear them immediately afterwards so
+# CFW's .NET, CLR, and PowerShell work uses its own compatibility policy.
+export WINEDLLOVERRIDES="mscoree,mshtml="
 rm -rf "$wine_prefix"
 mkdir -p "$wine_prefix"
 set +e
@@ -218,6 +222,10 @@ if [[ "$wineboot_rc" -ne 0 || "$wineboot_settle_rc" -ne 0 || ! -d "$wine_prefix/
   cat "$logs/wineboot.log" >&2 || true
   exit 70
 fi
+
+# CFW owns the post-bootstrap compatibility policy. Do not carry the Wineboot
+# suppression into installer, CLR, Synchro, or external PowerShell execution.
+export WINEDLLOVERRIDES=""
 
 mark_stage install-cfw
 export CFW_CACHE="$(winepath -w "$work")"

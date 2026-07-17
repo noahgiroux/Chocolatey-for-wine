@@ -32,6 +32,17 @@ class LayerContractTests(unittest.TestCase):
 
         self.assertIn("CFW_OFFLINE=1", source)
         self.assertIn("unset CFW_CONTAINER_BUILDER", source)
+        self.assertIn('WINEDLLOVERRIDES="mscoree,mshtml="', source)
+        self.assertIn('wine wineboot --init', source)
+        self.assertIn('export WINEDLLOVERRIDES=""', source)
+        self.assertLess(
+            source.index('WINEDLLOVERRIDES="mscoree,mshtml="'),
+            source.index('wine wineboot --init'),
+        )
+        self.assertLess(
+            source.index('wine wineboot --init'),
+            source.index('export WINEDLLOVERRIDES=""'),
+        )
         self.assertEqual(inputs["downloads"]["powershell"]["filename"], "PowerShell-7.5.5-win-x64.msi")
         self.assertIn("powershell-wrapper-for-wine/releases/download/v4.2.0", inputs["downloads"]["synchro64"]["url"])
         self.assertEqual(inputs["downloads"]["synchro64"]["sha256"], "b1d594bd44abc01007b9dd2adea5248f09906fa8d4c6cea7f36a4279e2de91e0")
