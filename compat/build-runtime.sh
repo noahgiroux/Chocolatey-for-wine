@@ -38,8 +38,16 @@ unset CFW_CONTAINER_BUILDER
 unset WINEDLLOVERRIDES
 
 CFW_RUNTIME_INPUTS_SHA256="$(sha256sum "$runtime_inputs" | awk '{print $1}')"
-CFW_SOURCE_REVISION="${CFW_SOURCE_REVISION:-$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || printf unknown)}"
-CFW_WINE_IMAGE="${CFW_WINE_IMAGE:-unresolved}"
+CFW_SOURCE_REVISION="${CFW_SOURCE_REVISION:?CFW_SOURCE_REVISION must be the exact source commit}"
+CFW_WINE_IMAGE="${CFW_WINE_IMAGE:?CFW_WINE_IMAGE must be the digest-pinned Wine producer image}"
+if [[ ! "$CFW_SOURCE_REVISION" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]; then
+  echo "[cfw] CFW_SOURCE_REVISION must be a full lowercase Git commit SHA" >&2
+  exit 64
+fi
+if [[ ! "$CFW_WINE_IMAGE" =~ ^ghcr\.io/pelagians/cage-wine@sha256:[0-9a-f]{64}$ ]]; then
+  echo "[cfw] CFW_WINE_IMAGE must be a ghcr.io/pelagians/cage-wine digest" >&2
+  exit 64
+fi
 export CFW_RUNTIME_INPUTS_SHA256 CFW_SOURCE_REVISION CFW_WINE_IMAGE
 
 on_error() {
@@ -190,9 +198,7 @@ mkdir -p "$release_root"
 7z x -y "$release_archive" "-o$release_root" >"$logs/release-extract.log"
 [[ -f "$release_dir/ChoCinstaller_0.5c.755.exe" ]]
 verify_checkout_source choc_install.ps1 "$repo_root/choc_install.ps1"
-verify_checkout_source winetricks.ps1 "$repo_root/winetricks.ps1"
 cp -f "$repo_root/choc_install.ps1" "$release_dir/choc_install.ps1"
-cp -f "$repo_root/winetricks.ps1" "$work/winetricks.ps1"
 
 for input_name in chocolatey powershell dotnet mscoree d3d64 d3d32 conemu sevenZipExtractor windowsPowerShell; do
   fetch_input "$input_name" "$payload_cache/$(input_value "$input_name" filename)"
