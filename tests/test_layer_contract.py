@@ -33,7 +33,17 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("winepath_to_windows", source)
         self.assertIn("winepath-${label}.log", source)
         self.assertIn("Wine path conversion failed", source)
-        self.assertIn('cfw_cache_win="$(winepath_to_windows cfw-cache "$work")"', source)
+        self.assertIn('export CFW_CONTAINER_BUILDER=1', source)
+        self.assertIn('export CFW_EXTERNAL_POWERSHELL=1', source)
+        self.assertIn('install-synchro-prerequisite', source)
+        self.assertLess(
+            source.index('mark_stage install-synchro-prerequisite'),
+            source.index('mark_stage install-cfw'),
+        )
+        self.assertLess(
+            source.index('export CFW_CONTAINER_BUILDER=1'),
+            source.index('timeout --kill-after=30s "${CFW_INSTALL_TIMEOUT:-7200s}" wine "$installer_win"'),
+        )
         self.assertIn('WINEDLLOVERRIDES="mscoree,mshtml="', source)
         self.assertIn('wine wineboot --init', source)
         self.assertIn('export WINEDLLOVERRIDES=""', source)

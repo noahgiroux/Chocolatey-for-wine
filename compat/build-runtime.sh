@@ -249,10 +249,25 @@ fi
 # suppression into installer, CLR, Synchro, or external PowerShell execution.
 export WINEDLLOVERRIDES=""
 
+# The native CFW finalizer runs inside the installer after PowerShell is laid
+# down. Its external-host contract therefore needs Synchro present beforehand.
+wrapper64="$wine_prefix/drive_c/windows/system32/WindowsPowerShell/v1.0/powershell.exe"
+wrapper32="$wine_prefix/drive_c/windows/syswow64/WindowsPowerShell/v1.0/powershell.exe"
+mark_stage install-synchro-prerequisite
+synchro_cache="$work/synchro-v4.2.0"
+fetch_input synchro64 "$synchro_cache/powershell64.exe"
+fetch_input synchro32 "$synchro_cache/powershell32.exe"
+mkdir -p "$(dirname "$wrapper64")" "$(dirname "$wrapper32")"
+cp -f "$synchro_cache/powershell64.exe" "$wrapper64"
+cp -f "$synchro_cache/powershell32.exe" "$wrapper32"
+test -s "$wrapper64" && test -s "$wrapper32"
+
 mark_stage install-cfw
 cfw_cache_win="$(winepath_to_windows cfw-cache "$work")"
 export CFW_CACHE="$cfw_cache_win"
 export CFW_OFFLINE=1
+export CFW_CONTAINER_BUILDER=1
+export CFW_EXTERNAL_POWERSHELL=1
 installer_win="$(winepath_to_windows cfw-installer "$release_dir/ChoCinstaller_0.5c.755.exe")"
 set +e
 timeout --kill-after=30s "${CFW_INSTALL_TIMEOUT:-7200s}" wine "$installer_win" /s /q >"$logs/installer.log" 2>&1
@@ -263,8 +278,6 @@ set -e
 
 pwsh="$wine_prefix/drive_c/Program Files/PowerShell/7/pwsh.exe"
 choco="$wine_prefix/drive_c/ProgramData/chocolatey/bin/choco.exe"
-wrapper64="$wine_prefix/drive_c/windows/system32/WindowsPowerShell/v1.0/powershell.exe"
-wrapper32="$wine_prefix/drive_c/windows/syswow64/WindowsPowerShell/v1.0/powershell.exe"
 
 if [[ "$installer_rc" -ne 0 || "$installer_settle_rc" -ne 0 ]]; then
   printf 'CFW installer failed: installer=%s settle=%s\n' "$installer_rc" "$installer_settle_rc" >&2
@@ -296,13 +309,7 @@ if [[ "$pwsh_rc" -ne 0 || "$pwsh_settle_rc" -ne 0 || ! -s "$pwsh_marker" ]]; the
   exit 70
 fi
 
-mark_stage install-synchro
-synchro_cache="$work/synchro-v4.2.0"
-fetch_input synchro64 "$synchro_cache/powershell64.exe"
-fetch_input synchro32 "$synchro_cache/powershell32.exe"
-mkdir -p "$(dirname "$wrapper64")" "$(dirname "$wrapper32")"
-cp -f "$synchro_cache/powershell64.exe" "$wrapper64"
-cp -f "$synchro_cache/powershell32.exe" "$wrapper32"
+mark_stage configure-cfw-profile
 write_cfw_profile_loader "$(dirname "$pwsh")"
 
 mark_stage prove-runtime
