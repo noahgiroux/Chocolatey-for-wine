@@ -101,12 +101,6 @@ Remove-Variable legacyProfile, cfwProfileRoot, cfwApplicationProfileRoot -ErrorA
 '@ | Set-Content -LiteralPath $profile -Encoding utf8
 Write-Diagnostic -Message "[cfw] stage=profile-loader-installed`n"
 
-& $choco feature disable --name=powershellHost
-if ($LASTEXITCODE -ne 0) {
-    throw "failed to disable Chocolatey powershellHost: $LASTEXITCODE"
-}
-Write-Diagnostic -Message "[cfw] stage=chocolatey-powershell-host-disabled`n"
-
 $markerParent = Split-Path -Parent $MarkerPath
 New-Item -ItemType Directory -Force -Path $markerParent | Out-Null
 [IO.File]::WriteAllText(
