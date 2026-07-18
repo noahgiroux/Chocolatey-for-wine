@@ -464,6 +464,25 @@ if [[ "$pwsh_rc" -ne 0 || "$pwsh_settle_rc" -ne 0 || "$pwsh_entry_rc" -ne 0 || "
     | tee "$logs/pwsh-proof-summary.log" >&2
   cat "$logs/pwsh-probe.log" >&2 || true
   set +e
+  pwsh_host_trace="$probe_dir/pwsh-host-trace.log"
+  dotnet_host_trace="$probe_dir/dotnet-host-trace.log"
+  rm -f "$pwsh_host_trace" "$dotnet_host_trace"
+  COREHOST_TRACE=1 COREHOST_TRACE_VERBOSITY=4 \
+  COREHOST_TRACEFILE='C:\ProgramData\CFW\RuntimeProbe\pwsh-host-trace.log' \
+  DOTNET_HOST_TRACE=1 DOTNET_HOST_TRACE_VERBOSITY=4 \
+  DOTNET_HOST_TRACEFILE='C:\ProgramData\CFW\RuntimeProbe\dotnet-host-trace.log' \
+  timeout --kill-after=15s 90s wine "$pwsh_win" -NoLogo -NoProfile -NonInteractive -Version \
+    >"$logs/pwsh-host-probe.log" 2>&1
+  host_probe_rc="$?"
+  timeout --kill-after=10s 60s wineserver -w >>"$logs/pwsh-host-probe.log" 2>&1
+  host_probe_settle_rc="$?"
+  [[ -f "$pwsh_host_trace" ]] && cp -f "$pwsh_host_trace" "$logs/pwsh-host-trace.log"
+  [[ -f "$dotnet_host_trace" ]] && cp -f "$dotnet_host_trace" "$logs/dotnet-host-trace.log"
+  printf 'host-probe process=%s settle=%s corehost-trace=%s dotnet-trace=%s\n' \
+    "$host_probe_rc" "$host_probe_settle_rc" \
+    "$([[ -s "$pwsh_host_trace" ]] && printf present || printf missing)" \
+    "$([[ -s "$dotnet_host_trace" ]] && printf present || printf missing)" \
+    | tee -a "$logs/pwsh-proof-summary.log" >&2
   WINEDEBUG=+process,+loaddll,+seh timeout --kill-after=15s 90s \
     wine "$pwsh_win" -NoLogo -NoProfile -NonInteractive \
     -File "$pwsh_probe_script_win" "$pwsh_marker_win" "$CFW_EXPECTED_POWERSHELL_VERSION" \
