@@ -313,10 +313,16 @@ timeout --kill-after=15s 300s wine "$pwsh_win" -NoLogo -NoProfile -NonInteractiv
 pwsh_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/pwsh-probe.log" 2>&1
 pwsh_settle_rc="$?"
-grep -Fqx '[cfw] pwsh-script-entry' "$logs/pwsh-probe.log"
-pwsh_entry_rc="$?"
-grep -Eq '^\[cfw\] pwsh=7\.' "$logs/pwsh-probe.log"
-pwsh_version_rc="$?"
+if grep -Fqx '[cfw] pwsh-script-entry' "$logs/pwsh-probe.log"; then
+  pwsh_entry_rc=0
+else
+  pwsh_entry_rc="$?"
+fi
+if grep -Eq '^\[cfw\] pwsh=7\.' "$logs/pwsh-probe.log"; then
+  pwsh_version_rc=0
+else
+  pwsh_version_rc="$?"
+fi
 set -e
 if [[ "$pwsh_rc" -ne 0 || "$pwsh_settle_rc" -ne 0 || "$pwsh_entry_rc" -ne 0 || "$pwsh_version_rc" -ne 0 || ! -s "$pwsh_marker" ]]; then
   if [[ -s "$pwsh_marker" ]]; then marker_status=present; else marker_status=missing; fi

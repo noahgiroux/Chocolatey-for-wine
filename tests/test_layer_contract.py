@@ -39,6 +39,8 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("[cfw] pwsh-script-entry", source)
         self.assertIn("pwsh_entry_rc", source)
         self.assertIn("pwsh_version_rc", source)
+        self.assertIn("if grep -Fqx '[cfw] pwsh-script-entry'", source)
+        self.assertIn("if grep -Eq '^\\[cfw\\] pwsh=7\\.'", source)
         self.assertIn("pwsh-proof-summary.log", source)
         self.assertIn("pwsh-failure-trace.log", source)
         self.assertIn("WINEDEBUG=+process,+loaddll,+seh", source)
