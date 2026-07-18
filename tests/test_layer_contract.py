@@ -1,16 +1,154 @@
 import json
+import importlib.util
 import os
 from pathlib import Path
 import re
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class LayerContractTests(unittest.TestCase):
+    def test_chocolatey_policy_writer_is_atomic_and_rejects_unsafe_inputs(self) -> None:
+        writer = ROOT / "compat" / "set-chocolatey-policy.py"
+        valid = (
+            b'<?xml version="1.0" encoding="utf-8"?>\n'
+            b'<chocolatey><features><feature name="powershellHost" enabled="true" />'
+            b'</features></chocolatey>\n'
+        )
+
+        def run(config: Path) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["python3", str(writer), "apply", str(config)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "chocolatey.config"
+            config.write_bytes(valid)
+            result = run(config)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(Path(f"{config}.backup").read_bytes(), valid)
+            updated = config.read_text(encoding="utf-8")
+            self.assertIn('enabled="false"', updated)
+            self.assertIn('setExplicitly="true"', updated)
+            self.assertEqual(list(root.glob("*.update")), [])
+
+        invalid_documents = (
+            b"<chocolatey>",
+            b"<chocolatey><features /></chocolatey>",
+            b'<chocolatey><features><feature name="powershellHost" />'
+            b'<feature name="powershellHost" /></features></chocolatey>',
+        )
+        for document in invalid_documents:
+            with self.subTest(document=document), tempfile.TemporaryDirectory() as directory:
+                config = Path(directory) / "chocolatey.config"
+                config.write_bytes(document)
+                result = run(config)
+                self.assertEqual(result.returncode, 70)
+                self.assertEqual(config.read_bytes(), document)
+                self.assertFalse(Path(f"{config}.backup").exists())
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            external = root / "external.config"
+            external.write_bytes(valid)
+            config = root / "chocolatey.config"
+            config.symlink_to(external)
+            self.assertEqual(run(config).returncode, 70)
+            self.assertEqual(external.read_bytes(), valid)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "chocolatey.config"
+            os.mkfifo(config)
+            result = subprocess.run(
+                ["python3", str(writer), "apply", str(config)],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=1,
+            )
+            self.assertEqual(result.returncode, 70)
+            self.assertIn("path is not a regular file", result.stderr)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            real_parent = root / "real" / "nested"
+            real_parent.mkdir(parents=True)
+            external = real_parent / "chocolatey.config"
+            external.write_bytes(valid)
+            alias = root / "alias"
+            alias.symlink_to(root / "real", target_is_directory=True)
+            self.assertEqual(run(alias / "nested" / "chocolatey.config").returncode, 70)
+            self.assertEqual(external.read_bytes(), valid)
+            self.assertFalse(Path(f"{external}.backup").exists())
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "chocolatey.config"
+            config.write_bytes(valid)
+            external = root / "external.backup"
+            external.write_bytes(b"sentinel")
+            Path(f"{config}.backup").symlink_to(external)
+            self.assertEqual(run(config).returncode, 70)
+            self.assertEqual(config.read_bytes(), valid)
+            self.assertEqual(external.read_bytes(), b"sentinel")
+
+        spec = importlib.util.spec_from_file_location("cfw_policy_writer", writer)
+        if spec is None or spec.loader is None:
+            self.fail("unable to load Chocolatey policy writer")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "chocolatey.config"
+            backup = Path(f"{config}.backup")
+            config.write_bytes(valid)
+            real_replace = module.os.replace
+
+            def fail_live_config_replace(
+                source: str | os.PathLike[str], destination: str | os.PathLike[str]
+            ) -> None:
+                if Path(destination) == config:
+                    raise OSError("simulated live config replace failure")
+                real_replace(source, destination)
+
+            with mock.patch.object(module.os, "replace", side_effect=fail_live_config_replace):
+                with self.assertRaises(OSError):
+                    module.apply_policy(config)
+            self.assertEqual(config.read_bytes(), valid)
+            self.assertEqual(backup.read_bytes(), valid)
+            self.assertEqual(list(root.glob("*.update")), [])
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "chocolatey.config"
+            backup = Path(f"{config}.backup")
+            config.write_bytes(valid)
+            real_write_atomic = module._write_atomic
+
+            def swap_after_backup(path: Path, payload: bytes) -> None:
+                real_write_atomic(path, payload)
+                if path == backup:
+                    replacement = root / "replacement.config"
+                    replacement.write_bytes(b"replacement")
+                    os.replace(replacement, config)
+
+            with mock.patch.object(module, "_write_atomic", side_effect=swap_after_backup):
+                with self.assertRaises(module.PolicyError):
+                    module.apply_policy(config)
+            self.assertEqual(config.read_bytes(), b"replacement")
+            self.assertEqual(backup.read_bytes(), valid)
+            self.assertEqual(list(root.glob("*.update")), [])
+
     def test_contract_defines_prepared_prefix_runtime(self) -> None:
         contract = json.loads((ROOT / "compat" / "contract.json").read_text(encoding="utf-8"))
 
@@ -107,10 +245,18 @@ class LayerContractTests(unittest.TestCase):
         self.assertEqual(inputs["downloads"]["synchro32"]["sha256"], "ca76d774273ffa37053545f8e4ad63c8914461828f1d1eef7a1915c9656fed4c")
         finalizer = (ROOT / "compat" / "finalize-runtime.ps1").read_text(encoding="utf-8")
         self.assertNotIn("feature disable --name=powershellHost", finalizer)
-        self.assertIn("mark_stage disable-chocolatey-powershell-host", source)
-        self.assertIn('wine "$choco_win" feature disable --name=powershellHost', source)
-        self.assertIn("feature_disable_rc", source)
-        self.assertIn("feature_disable_settle_rc", source)
+        self.assertNotIn("feature disable --name=powershellHost", source)
+        self.assertNotIn("powershellHostFeatures", finalizer)
+        self.assertIn('mark_stage apply-chocolatey-policy', source)
+        self.assertIn('timeout --kill-after=5s 60s python3 "$repo_root/compat/set-chocolatey-policy.py" apply "$chocolatey_config"', source)
+        self.assertIn('python3 "$repo_root/compat/set-chocolatey-policy.py" verify-status', source)
+        policy_writer = (ROOT / "compat" / "set-chocolatey-policy.py").read_text(encoding="utf-8")
+        self.assertIn('feature.set("enabled", "false")', policy_writer)
+        self.assertIn('feature.set("setExplicitly", "true")', policy_writer)
+        self.assertIn('tempfile.mkstemp(', policy_writer)
+        self.assertIn('os.replace(temporary, path)', policy_writer)
+        self.assertIn('getattr(os, "O_NOFOLLOW", 0)', policy_writer)
+        self.assertIn("stat.S_ISLNK", policy_writer)
         self.assertIn("pwsh-probe.log", source)
         self.assertIn('normalize_log "$logs/pwsh-probe.log"', source)
         self.assertIn('normalize_log "$logs/prepared-finalizer.log"', source)
@@ -118,7 +264,7 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn('normalize_log "$logs/choco-version.log"', source)
         self.assertLess(
             source.index('normalize_log "$logs/choco-feature-status.log"'),
-            source.index("grep -Eiq '^powershellHost\\|(disabled|false)$'"),
+            source.index('python3 "$repo_root/compat/set-chocolatey-policy.py" verify-status'),
         )
         self.assertIn("feature_status_settle_rc", source)
         self.assertIn("choco_settle_rc", source)
@@ -165,10 +311,10 @@ class LayerContractTests(unittest.TestCase):
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
         lines = [line.strip() for line in source.splitlines()]
 
-        self.assertEqual(lines.count("trap - ERR"), 12)
-        self.assertEqual(lines.count("set +e"), 12)
-        self.assertEqual(lines.count("set -e"), 12)
-        self.assertEqual(lines.count("trap on_error ERR"), 13)
+        self.assertEqual(lines.count("trap - ERR"), 11)
+        self.assertEqual(lines.count("set +e"), 11)
+        self.assertEqual(lines.count("set -e"), 11)
+        self.assertEqual(lines.count("trap on_error ERR"), 12)
         for index, line in enumerate(lines):
             if line == "set +e":
                 self.assertEqual(lines[index - 1], "trap - ERR")
@@ -271,7 +417,7 @@ class LayerContractTests(unittest.TestCase):
 
     def test_runtime_evidence_rejects_noncanonical_persisted_proofs(self) -> None:
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
-        anchor = 'path = Path(sys.argv[1])\nvalues = [int(value) for value in sys.argv[2:35]]'
+        anchor = 'path = Path(sys.argv[1])\nvalues = [int(value) for value in sys.argv[2:33]]'
         anchor_index = source.index(anchor)
         program_start = source.rfind("<<'PY2'\n", 0, anchor_index) + len("<<'PY2'\n")
         program_end = source.index("\nPY2\n", anchor_index)
@@ -339,7 +485,7 @@ class LayerContractTests(unittest.TestCase):
                         markers[marker_index].write_bytes(content)
                 metadata = root / f"{case}.json"
                 arguments = [
-                    str(metadata), *("0" for _ in range(33)), str(logs),
+                    str(metadata), *("0" for _ in range(31)), str(logs),
                     *(str(marker) for marker in markers),
                 ]
                 result = subprocess.run(
@@ -358,9 +504,29 @@ class LayerContractTests(unittest.TestCase):
                 )
 
     def test_windows_crlf_feature_status_is_normalized_before_exact_match(self) -> None:
-        raw = "powershellHost|disabled\r\n"
-        normalized = raw.replace("\r", "")
-        self.assertRegex(normalized, re.compile(r"^powershellHost\|(disabled|false)$", re.IGNORECASE | re.MULTILINE))
+        writer = ROOT / "compat" / "set-chocolatey-policy.py"
+
+        def verify(payload: str) -> subprocess.CompletedProcess[str]:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8") as status:
+                status.write(payload)
+                status.flush()
+                return subprocess.run(
+                    ["python3", str(writer), "verify-status", status.name],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+
+        self.assertEqual(verify("powershellHost|disabled\r\n").returncode, 0)
+        self.assertEqual(verify("PowershellHost|false\n").returncode, 0)
+        for payload in (
+            "",
+            "powershellHost|enabled\n",
+            "powershellHost|disabled\npowershellHost|disabled\n",
+            "powershellHost|disabled\npowershellHost|enabled\n",
+        ):
+            with self.subTest(payload=payload):
+                self.assertEqual(verify(payload).returncode, 70)
 
     def test_locked_versions_bind_runtime_identity_and_observed_evidence(self) -> None:
         inputs = json.loads((ROOT / "compat" / "runtime-inputs.json").read_text(encoding="utf-8"))
@@ -382,12 +548,10 @@ class LayerContractTests(unittest.TestCase):
 
         self.assertIn("[cfw] stage=prepared-finalizer-script-entry", finalizer)
         self.assertIn("$ErrorActionPreference = 'Stop'", finalizer)
+        self.assertIn("$markerParent = Split-Path -Parent $MarkerPath", finalizer)
         self.assertIn("application-profile.d", finalizer)
         self.assertNotIn("feature disable --name=powershellHost", finalizer)
-        self.assertIn("mark_stage disable-chocolatey-powershell-host", source)
-        self.assertIn('wine "$choco_win" feature disable --name=powershellHost', source)
-        self.assertIn("feature_disable_rc", source)
-        self.assertIn("feature_disable_settle_rc", source)
+        self.assertNotIn("powershellHost", finalizer)
         self.assertIn("mark_stage finalize-prepared-runtime", source)
         self.assertIn('-File "$prepared_finalizer_win"', source)
         self.assertLess(
@@ -396,10 +560,10 @@ class LayerContractTests(unittest.TestCase):
         )
         self.assertLess(
             source.index('mark_stage finalize-prepared-runtime'),
-            source.index('mark_stage disable-chocolatey-powershell-host'),
+            source.index('mark_stage apply-chocolatey-policy'),
         )
         self.assertLess(
-            source.index('mark_stage disable-chocolatey-powershell-host'),
+            source.index('mark_stage apply-chocolatey-policy'),
             source.index('mark_stage prove-runtime'),
         )
         self.assertNotIn("write_cfw_profile_loader", source)
@@ -449,9 +613,9 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("must be a ghcr.io/pelagians/cage-wine digest", source)
         self.assertIn("CFW_RUNTIME_EVIDENCE_NAME", source)
         self.assertIn("CFW_RUNTIME_MANIFEST_NAME", source)
-        self.assertIn("values = [int(value) for value in sys.argv[2:35]]", source)
-        self.assertIn("logs_path = Path(sys.argv[35])", source)
-        self.assertIn("markers = [Path(value) for value in sys.argv[36:]]", source)
+        self.assertIn("values = [int(value) for value in sys.argv[2:33]]", source)
+        self.assertIn("logs_path = Path(sys.argv[33])", source)
+        self.assertIn("markers = [Path(value) for value in sys.argv[34:]]", source)
 
     def test_wine_identity_and_pre_pwsh_policy_have_isolated_settlement_evidence(self) -> None:
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
