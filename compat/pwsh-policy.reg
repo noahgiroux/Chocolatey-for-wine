@@ -1,0 +1,11 @@
+REGEDIT4
+
+; Minimal policy required before the first prepared-runtime pwsh.exe proof.
+; Keep this aligned with CFW's maintained upstream policy. Post-PowerShell
+; compatibility belongs to finalize-runtime.ps1.
+
+[HKEY_CURRENT_USER\Software\Wine\AppDefaults\pwsh.exe]
+
+[HKEY_CURRENT_USER\Software\Wine\AppDefaults\pwsh.exe\DllOverrides]
+"amsi"=""
+"dwmapi"=""

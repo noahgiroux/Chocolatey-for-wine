@@ -48,24 +48,37 @@ The detached manifest binds the archive to:
 
 - the CFW source revision and `runtime-inputs.json` digest;
 - the exact Wine OCI image digest and observed Wine version;
-- the `runtime.json` hash and runtime proof status;
-- profile-loader and application-extension paths.
+- the `runtime.json` hash and the exact behavioral proof inventory required by
+  `compat/contract.json`;
+- producer-declared consumer interfaces, including canonical Chocolatey paths
+  and the post-bootstrap runtime environment.
 
 The runtime build is valid only when all behavioral proofs pass:
 
-1. the fresh win64 prefix initializes and the CFW installer completes;
-2. `pwsh.exe` creates a filesystem sentinel;
-3. both Synchro wrappers create independent x64/x86 filesystem sentinels;
-4. Chocolatey’s in-process `powershellHost` is disabled and its disabled status
+1. a contract-selected, bounded `wine --version` probe observes exactly the declared Wine candidate and settles against
+   the digest-pinned producer image;
+2. the fresh win64 prefix initializes and the CFW native bootstrap completes;
+3. every Wine path conversion and pre-PowerShell Wine policy command runs under its own timeout, settles independently, and records command/settlement evidence;
+4. `pwsh.exe` emits script entry, reports the exact locked version, and creates
+   a matching filesystem sentinel;
+5. the prepared-runtime PowerShell finalizer completes and creates its sentinel;
+6. both Synchro wrappers create independent x64/x86 filesystem sentinels;
+7. Chocolatey’s in-process `powershellHost` is disabled and its disabled status
    is verified;
-5. canonical Chocolatey reports its version;
-6. a CFW-controlled local package installs and uninstalls, creating both
+8. canonical Chocolatey emits one exact observed version equal to the locked version;
+9. a CFW-controlled local package installs and uninstalls, creating both
    lifecycle sentinels;
-7. Wine settles after every critical execution boundary.
+10. Wine settles after every critical execution boundary.
+
+Phase 1 targets Wine 11 only. Wine 9 and 10 are reintroduced after Wine 11
+passes and the first immutable prepared runtime is published.
 
 A tagged `cfw-runtime-v*` GitHub Actions run publishes only the assets produced
-by successful matrix jobs. Short-lived CI artifacts remain diagnostics only;
-they are not the consumer interface.
+by successful matrix jobs. Prefix archives normalize member order, ownership,
+timestamps, PAX metadata, permissions, and gzip headers from the exact source
+revision so equivalent prepared prefixes produce byte-identical archives.
+Short-lived CI artifacts remain diagnostics only; they are not the consumer
+interface.
 
 ## Profile composition
 

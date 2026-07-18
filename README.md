@@ -28,7 +28,11 @@ The machine-readable contract is [`compat/contract.json`](compat/contract.json).
 inputs. It requires all of the following before producing an artifact:
 
 - the full CFW installer exits successfully and Wine settles;
-- Windows `pwsh.exe` executes a command and creates a filesystem side effect;
+- the source-controlled pre-PowerShell Wine policy is applied;
+- Windows `pwsh.exe` emits script entry, reports the exact locked version, and
+  creates a matching filesystem sentinel;
+- the CFW prepared-runtime PowerShell finalizer completes and creates its
+  sentinel;
 - pinned Synchro v4.2.0 x64 and x86 wrappers each create a filesystem side effect;
 - canonical Chocolatey reports its version and its in-process PowerShell host is
   disabled and verified;
@@ -46,21 +50,25 @@ logs/
 ```
 
 `runtime.json` records the exact Wine image digest and observed Wine version,
-CFW source revision, lock-file digest, runtime proof return codes, and sentinel
+CFW source revision, compatibility-contract digest, lock-file digest, installer digest, runtime proof return codes, and sentinel
 hashes. The detached manifest binds that evidence to the archive name, digest,
-and byte size. The archive is a complete prepared prefix, not a loose file
+and byte size, the contract-authoritative behavioral proof inventory, and
+producer-declared consumer interfaces (including the post-bootstrap runtime
+environment). The archive is a complete prepared prefix, not a loose file
 overlay. A consumer must verify the manifest, evidence, archive hash, and Wine
 digest before replacing a fresh prefix.
 
-The CI matrix currently evaluates the published Cage Wine 9.0, 10.0, and 11.0
-runtime images. Only a candidate that passes every runtime proof may be released.
+Phase 1 currently evaluates only the published Cage Wine 11.0 runtime image.
+Wine 9.0 and 10.0 return to the matrix only after Wine 11 passes every runtime
+proof and produces the first immutable release.
 
 ## Deterministic consumers
 
 Cage and similar builders should:
 
 - download a released CFW runtime archive by immutable URL and SHA-256;
-- verify `runtime.json` and the declared Wine compatibility;
+- verify `runtime.json`, the exact proof inventory and interfaces declared by
+  the compatibility contract, and the exact Wine image/observed-version identity;
 - replace a fresh prefix with the prepared prefix before other modules run;
 - validate `choco.exe` with a real package install and uninstall lifecycle;
 - keep application-specific package selection and orchestration outside CFW;

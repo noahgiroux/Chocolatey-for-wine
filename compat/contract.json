@@ -6,20 +6,21 @@
     "script": "build-runtime.sh",
     "inputs": "runtime-inputs.json",
     "wineCandidates": [
-      "9.0",
-      "10.0",
       "11.0"
     ],
     "freshWin64Prefix": true,
     "requiredProofs": [
-      "cfw-installer",
-      "windows-pwsh-side-effect",
-      "synchro-x64-side-effect",
-      "synchro-x86-side-effect",
-      "chocolatey-feature-policy",
-      "chocolatey-version",
-      "chocolatey-lifecycle",
-      "wineserver-settle"
+      "wineIdentity",
+      "installer",
+      "prePwshPolicy",
+      "pathConversions",
+      "pwsh",
+      "preparedFinalizer",
+      "featurePolicy",
+      "chocolatey",
+      "synchroX64",
+      "synchroX86",
+      "chocolateyLifecycle"
     ]
   },
   "artifact": {
@@ -29,7 +30,16 @@
     "manifest": "cfw-runtime-manifest.json",
     "seedSemantics": "replace-fresh-prefix",
     "mustPrecedeApplicationModules": true,
-    "runtimeCompatibility": "declared-in-evidence"
+    "runtimeCompatibility": "declared-in-evidence",
+    "interfaces": {
+      "chocolatey": {
+        "windowsPath": "C:\\ProgramData\\chocolatey\\bin\\choco.exe",
+        "prefixRelativePath": "drive_c/ProgramData/chocolatey/bin/choco.exe"
+      },
+      "environment": {
+        "WINEDLLOVERRIDES": ""
+      }
+    }
   },
   "provides": {
     "package-manager": "chocolatey-2.6.0",
