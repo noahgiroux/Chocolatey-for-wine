@@ -64,6 +64,18 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
         self.assertIn("machine_path,", native)
         self.assertIn("process_path,", native)
         self.assertIn("SetEnvironmentVariableW", native)
+        self.assertIn("configure_container_pwsh_policy()", native)
+
+        policy = INSTALLER[
+            INSTALLER.index("static DWORD configure_container_pwsh_policy") :
+            INSTALLER.index("static DWORD native_finalize_chocolatey")
+        ]
+        self.assertIn('L"Software\\\\Wine\\\\AppDefaults\\\\pwsh.exe\\\\DllOverrides"', policy)
+        self.assertIn('L"amsi"', policy)
+        self.assertIn('L"dwmapi"', policy)
+        self.assertIn('L"rpcrt4"', policy)
+        self.assertIn('L"native,builtin"', policy)
+        self.assertIn("pwsh-policy-complete", policy)
 
     def test_installer_reports_container_builder_stage_progress(self):
         stages = (

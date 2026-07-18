@@ -88,7 +88,7 @@ jobs:
               echo '--- runtime evidence ---'
               python3 -c 'import json,sys; from pathlib import Path; p=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")); print(json.dumps({"status":p.get("status"),"checks":p.get("checks",{}),"returnCodes":p.get("returnCodes",{}),"markers":sorted(p.get("markerSha256",{}))},sort_keys=True))' "$evidence"
             fi
-            for name in build-stages pwsh-proof-summary pwsh-probe pwsh-failure-trace choco-feature-policy choco-feature-status choco-version synchro-x64 synchro-x86 choco-smoke-install choco-smoke-uninstall winepath-cfw-cache winepath-cfw-installer winepath-pwsh-executable winepath-pwsh-probe-script winepath-pwsh-marker wineboot; do
+            for name in build-stages pwsh-policy pwsh-proof-summary pwsh-probe pwsh-failure-trace choco-feature-policy choco-feature-status choco-version synchro-x64 synchro-x86 choco-smoke-install choco-smoke-uninstall winepath-cfw-cache winepath-cfw-installer winepath-pwsh-executable winepath-pwsh-probe-script winepath-pwsh-marker wineboot; do
               path="$logs/${name}.log"
               if [ -f "$path" ]; then
                 echo "--- ${name}.log (tail) ---"

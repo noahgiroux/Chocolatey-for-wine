@@ -289,6 +289,14 @@ fi
   exit 70
 }
 
+mark_stage verify-pwsh-policy
+pwsh_policy_key='HKCU\Software\Wine\AppDefaults\pwsh.exe\DllOverrides'
+timeout --kill-after=10s 60s wine reg query "$pwsh_policy_key" \
+  2>&1 | tr -d '\r' >"$logs/pwsh-policy.log"
+grep -Eq 'amsi[[:space:]]+REG_SZ[[:space:]]*$' "$logs/pwsh-policy.log"
+grep -Eq 'dwmapi[[:space:]]+REG_SZ[[:space:]]*$' "$logs/pwsh-policy.log"
+grep -Eq 'rpcrt4[[:space:]]+REG_SZ[[:space:]]+native,builtin[[:space:]]*$' "$logs/pwsh-policy.log"
+
 mark_stage prove-pwsh
 probe_dir="$wine_prefix/drive_c/ProgramData/CFW/RuntimeProbe"
 pwsh_marker="$probe_dir/pwsh.txt"
