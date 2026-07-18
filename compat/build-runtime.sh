@@ -401,14 +401,16 @@ grep -Eq 'amsi[[:space:]]+REG_SZ[[:space:]]*$' "$logs/pwsh-policy.log"
 pwsh_amsi_rc="$?"
 grep -Eq 'dwmapi[[:space:]]+REG_SZ[[:space:]]*$' "$logs/pwsh-policy.log"
 pwsh_dwmapi_rc="$?"
+grep -Eq 'rpcrt4[[:space:]]+REG_SZ[[:space:]]+native,builtin[[:space:]]*$' "$logs/pwsh-policy.log"
+pwsh_rpcrt4_rc="$?"
 set -e
 if [[ "$pwsh_winecfg_rc" -ne 0 || "$pwsh_winecfg_settle_rc" -ne 0 || \
       "$pwsh_regedit_rc" -ne 0 || "$pwsh_regedit_settle_rc" -ne 0 || \
       "$pwsh_query_rc" -ne 0 || "$pwsh_query_settle_rc" -ne 0 || \
-      "$pwsh_amsi_rc" -ne 0 || "$pwsh_dwmapi_rc" -ne 0 ]]; then
-  printf '[cfw] pre-PowerShell policy failed: winecfg=%s/%s regedit=%s/%s query=%s/%s amsi=%s dwmapi=%s\n' \
+      "$pwsh_amsi_rc" -ne 0 || "$pwsh_dwmapi_rc" -ne 0 || "$pwsh_rpcrt4_rc" -ne 0 ]]; then
+  printf '[cfw] pre-PowerShell policy failed: winecfg=%s/%s regedit=%s/%s query=%s/%s amsi=%s dwmapi=%s rpcrt4=%s\n' \
     "$pwsh_winecfg_rc" "$pwsh_winecfg_settle_rc" "$pwsh_regedit_rc" "$pwsh_regedit_settle_rc" \
-    "$pwsh_query_rc" "$pwsh_query_settle_rc" "$pwsh_amsi_rc" "$pwsh_dwmapi_rc" >&2
+    "$pwsh_query_rc" "$pwsh_query_settle_rc" "$pwsh_amsi_rc" "$pwsh_dwmapi_rc" "$pwsh_rpcrt4_rc" >&2
   exit 70
 fi
 
@@ -574,7 +576,7 @@ python3 - "$metadata" \
   "$smoke_install_rc" "$smoke_install_settle_rc" "$smoke_uninstall_rc" "$smoke_uninstall_settle_rc" \
   "$wine_version_rc" "$wine_version_settle_rc" \
   "$pwsh_winecfg_rc" "$pwsh_winecfg_settle_rc" "$pwsh_regedit_rc" "$pwsh_regedit_settle_rc" \
-  "$pwsh_query_rc" "$pwsh_query_settle_rc" "$pwsh_amsi_rc" "$pwsh_dwmapi_rc" \
+  "$pwsh_query_rc" "$pwsh_query_settle_rc" "$pwsh_amsi_rc" "$pwsh_dwmapi_rc" "$pwsh_rpcrt4_rc" \
   "$logs" "$pwsh_marker" "$prepared_finalizer_marker" "$synchro64_marker" "$synchro32_marker" "$smoke_install_marker" "$smoke_uninstall_marker" <<'PY2'
 import hashlib
 import json
@@ -583,9 +585,9 @@ import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-values = [int(value) for value in sys.argv[2:32]]
-logs_path = Path(sys.argv[32])
-markers = [Path(value) for value in sys.argv[33:]]
+values = [int(value) for value in sys.argv[2:33]]
+logs_path = Path(sys.argv[33])
+markers = [Path(value) for value in sys.argv[34:]]
 keys = [
     "installer", "installerSettle", "pwsh", "pwshSettle", "preparedFinalizer",
     "preparedFinalizerSettle", "featurePolicyStatusCommand", "featurePolicyStatusSettle",
@@ -594,7 +596,7 @@ keys = [
     "synchroX86Settle", "smokeInstall", "smokeInstallSettle", "smokeUninstall",
     "smokeUninstallSettle", "wineVersionCommand", "wineVersionSettle",
     "prePwshWinecfg", "prePwshWinecfgSettle", "prePwshRegedit", "prePwshRegeditSettle",
-    "prePwshQuery", "prePwshQuerySettle", "prePwshAmsi", "prePwshDwmapi",
+    "prePwshQuery", "prePwshQuerySettle", "prePwshAmsi", "prePwshDwmapi", "prePwshRpcrt4",
 ]
 return_codes = dict(zip(keys, values))
 winepath_labels = (
@@ -619,7 +621,7 @@ observed_powershell = markers[0].read_text(encoding="utf-8").strip()
 checks = {
     "wineIdentity": values[20] == 0 and values[21] == 0 and os.environ["CFW_OBSERVED_WINE_VERSION"] == os.environ["CFW_EXPECTED_WINE_VERSION"],
     "installer": values[0] == 0 and values[1] == 0,
-    "prePwshPolicy": all(value == 0 for value in values[22:30]),
+    "prePwshPolicy": all(value == 0 for value in values[22:31]),
     "pathConversions": all(
         codes["command"] == 0 and codes["settle"] == 0
         for codes in winepath_return_codes.values()

@@ -18,7 +18,7 @@ CFW is the sole owner of its prepared Wine compatibility runtime:
 
 1. CFW initializes a fresh prefix from digest-pinned Wine and locked inputs.
 2. A bounded native bootstrap installs prerequisites that must exist before PowerShell can execute.
-3. CFW applies one source-controlled pre-PowerShell Wine policy.
+3. CFW applies one source-controlled pre-PowerShell Wine policy, including its maintained `pwsh.exe` RPC override; this policy is producer-owned compatibility behavior, not a Cage reconstruction.
 4. A behavioral `pwsh.exe` proof must emit an entry token, exact version, and filesystem sentinel.
 5. Only after that proof may CFW run its prepared-runtime PowerShell finalizer.
 6. CFW installs and proves Synchro x64/x86, canonical Chocolatey policy, and a local package install/uninstall lifecycle.
