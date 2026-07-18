@@ -138,7 +138,7 @@ jobs:
               echo '--- runtime evidence ---'
               python3 -c 'import json,sys; from pathlib import Path; p=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")); print(json.dumps({"status":p.get("status"),"checks":p.get("checks",{}),"returnCodes":p.get("returnCodes",{}),"markers":sorted(p.get("markerSha256",{}))},sort_keys=True))' "$evidence"
             fi
-            for name in build-stages installer-under-test.sha256 pwsh-policy pwsh-proof-summary pwsh-probe pwsh-failure-trace prepared-finalizer choco-feature-status choco-version synchro-x64 synchro-x86 choco-smoke-install choco-smoke-uninstall winepath-cfw-cache winepath-cfw-installer winepath-pwsh-policy winepath-pwsh-executable winepath-pwsh-probe-script winepath-pwsh-marker winepath-prepared-finalizer winepath-profile-fragments winepath-prepared-finalizer-marker wineboot; do
+            for name in build-stages installer-under-test.sha256 pwsh-policy pwsh-proof-summary pwsh-probe pwsh-host-probe pwsh-host-trace dotnet-host-trace pwsh-failure-trace prepared-finalizer choco-feature-status choco-version synchro-x64 synchro-x86 choco-smoke-install choco-smoke-uninstall winepath-cfw-cache winepath-cfw-installer winepath-pwsh-policy winepath-pwsh-executable winepath-pwsh-probe-script winepath-pwsh-marker winepath-prepared-finalizer winepath-profile-fragments winepath-prepared-finalizer-marker wineboot; do
               path="$logs/${name}.log"
               if [ -f "$path" ]; then
                 echo "--- ${name}.log (tail) ---"
