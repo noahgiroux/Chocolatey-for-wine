@@ -59,8 +59,10 @@ The runtime build is valid only when all behavioral proofs pass:
    the digest-pinned producer image;
 2. the fresh win64 prefix initializes and the CFW native bootstrap completes;
 3. every Wine path conversion and pre-PowerShell Wine policy command runs under its own timeout, settles independently, and records command/settlement evidence; the policy mirrors CFW's maintained `pwsh.exe` overrides (`amsi=""`, `dwmapi=""`, and `rpcrt4=native,builtin`);
-4. `pwsh.exe` emits script entry, reports the exact locked version, and creates
-   a matching filesystem sentinel;
+4. `pwsh.exe` receives a real `CONOUT$` through Wine 11's supported
+   `wineconsole <command>` interface,
+   emits script entry, reports the exact locked version, and creates matching
+   filesystem evidence and a sentinel;
 5. the prepared-runtime PowerShell finalizer completes and creates its sentinel;
 6. both Synchro wrappers create independent x64/x86 filesystem sentinels;
 7. Chocolatey’s in-process `powershellHost` is disabled and its disabled status

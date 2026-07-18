@@ -19,7 +19,7 @@ CFW is the sole owner of its prepared Wine compatibility runtime:
 1. CFW initializes a fresh prefix from digest-pinned Wine and locked inputs.
 2. A bounded native bootstrap installs prerequisites that must exist before PowerShell can execute.
 3. CFW applies one source-controlled pre-PowerShell Wine policy, including its maintained `pwsh.exe` RPC override; this policy is producer-owned compatibility behavior, not a Cage reconstruction.
-4. A behavioral `pwsh.exe` proof must emit an entry token, exact version, and filesystem sentinel.
+4. CFW launches direct `pwsh.exe` boundaries through Wine 11's `wineconsole <command>` interface so PowerShell receives its required `CONOUT$`; the behavioral proof must persist an entry token, exact version, and filesystem sentinel.
 5. Only after that proof may CFW run its prepared-runtime PowerShell finalizer.
 6. CFW installs and proves Synchro x64/x86, canonical Chocolatey policy, and a local package install/uninstall lifecycle.
 7. CFW publishes a versioned prefix archive, runtime evidence, detached manifest, and checksum only when all proofs pass.
@@ -32,7 +32,7 @@ Cage owns artifact acquisition, complete manifest/evidence/archive verification,
 
 `wine-identity -> fresh-prefix -> native-bootstrap -> bounded-settled-path-conversions -> isolated-pre-pwsh-policy -> pwsh-proof -> prepared-runtime-finalizer -> synchro/chocolatey proofs -> package -> contract-authoritative release`
 
-A process exit code alone is not proof. Each executable boundary requires observable behavior and Wine settlement. The compatibility contract is authoritative for both the required proof inventory and the Phase 1 Wine candidate matrix.
+A process exit code alone is not proof. Each executable boundary requires observable behavior and Wine settlement. Console-window output is not evidence in headless CI, so PowerShell and finalizer entry/completion tokens are persisted in the prepared prefix and validated there. The compatibility contract is authoritative for both the required proof inventory and the Phase 1 Wine candidate matrix.
 
 ## Rejected alternatives
 

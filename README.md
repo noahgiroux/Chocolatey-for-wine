@@ -29,8 +29,9 @@ inputs. It requires all of the following before producing an artifact:
 
 - the full CFW installer exits successfully and Wine settles;
 - the source-controlled pre-PowerShell Wine policy, including CFW's maintained `pwsh.exe` RPC override, is applied and independently evidenced;
-- Windows `pwsh.exe` emits script entry, reports the exact locked version, and
-  creates a matching filesystem sentinel;
+- Windows `pwsh.exe` runs through Wine's X-backed user console, emits script
+  entry, reports the exact locked version, and creates matching filesystem
+  evidence and a sentinel;
 - the CFW prepared-runtime PowerShell finalizer completes and creates its
   sentinel;
 - pinned Synchro v4.2.0 x64 and x86 wrappers each create a filesystem side effect;
