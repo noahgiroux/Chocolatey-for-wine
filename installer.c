@@ -98,36 +98,6 @@ static DWORD validate_canonical_choco(void) {
         : ERROR_SUCCESS;
 }
 
-static DWORD configure_container_pwsh_policy(void) {
-    static const WCHAR key_path[] = L"Software\\Wine\\AppDefaults\\pwsh.exe\\DllOverrides";
-    static const WCHAR empty_value[] = L"";
-    static const WCHAR rpc_value[] = L"native,builtin";
-    HKEY policy;
-    DWORD result;
-
-    log_stage("[cfw] stage=pwsh-policy-start\n");
-    result = RegCreateKeyExW(
-        HKEY_CURRENT_USER,
-        key_path,
-        0,
-        NULL,
-        REG_OPTION_NON_VOLATILE,
-        KEY_SET_VALUE,
-        NULL,
-        &policy,
-        NULL
-    );
-    if(result != ERROR_SUCCESS) return result;
-    result = RegSetValueExW(policy, L"amsi", 0, REG_SZ, (BYTE*)empty_value, sizeof(empty_value));
-    if(result == ERROR_SUCCESS)
-        result = RegSetValueExW(policy, L"dwmapi", 0, REG_SZ, (BYTE*)empty_value, sizeof(empty_value));
-    if(result == ERROR_SUCCESS)
-        result = RegSetValueExW(policy, L"rpcrt4", 0, REG_SZ, (BYTE*)rpc_value, sizeof(rpc_value));
-    RegCloseKey(policy);
-    if(result == ERROR_SUCCESS) log_stage("[cfw] stage=pwsh-policy-complete\n");
-    return result;
-}
-
 static DWORD native_finalize_chocolatey(void) {
     wchar_t raw_root[MAX_PATH] = L"";
     wchar_t raw_choco[MAX_PATH] = L"";
@@ -274,8 +244,6 @@ static DWORD native_finalize_chocolatey(void) {
         return ERROR_INSUFFICIENT_BUFFER;
     if(!SetEnvironmentVariableW(L"Path", process_path))
         return GetLastError();
-    result = configure_container_pwsh_policy();
-    if(result != ERROR_SUCCESS) return result;
 
     log_stage("[cfw] stage=native-finalizer-complete\n");
     return ERROR_SUCCESS;

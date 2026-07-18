@@ -27,18 +27,46 @@ permissions:
   packages: read
 
 jobs:
+  contract:
+    name: Resolve compatibility contract
+    runs-on: ubuntu-latest
+    outputs:
+      wines: ${{ steps.contract.outputs.wines }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read Wine candidates
+        id: contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          wines="$(python3 - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+          contract = json.loads(Path('compat/contract.json').read_text(encoding='utf-8'))
+          candidates = contract['build']['wineCandidates']
+          assert isinstance(candidates, list) and len(candidates) == 1
+          assert all(isinstance(value, str) and re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,3}', value) for value in candidates)
+          print(json.dumps(candidates, separators=(',', ':')))
+          PY
+          )"
+          printf 'wines=%s\n' "$wines" >> "$GITHUB_OUTPUT"
+
   runtime:
+    needs: contract
     name: wine-${{ matrix.wine }}
     runs-on: ubuntu-latest
     timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
-        wine: ['9.0', '10.0', '11.0']
+        wine: ${{ fromJSON(needs.contract.outputs.wines) }}
     env:
       IMAGE: ghcr.io/pelagians/cage-wine:${{ matrix.wine }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Compile CFW installer under test
         shell: bash
@@ -72,18 +100,22 @@ jobs:
           set +e
           out="$PWD/dist/wine-${{ matrix.wine }}"
           mkdir -p "$out"
+          cp -f compat/ChoCinstaller-under-test.exe "$out/cfw-installer-under-test-wine-${{ matrix.wine }}.exe"
+          source_date_epoch="$(git show -s --format=%ct "$GITHUB_SHA")"
           docker run --rm \
             -e WINEPREFIX=/out/prefix \
             -e CFW_BUILD_CACHE=/out/cache \
             -e CFW_WINE_IMAGE='${{ steps.image.outputs.image }}' \
+            -e CFW_EXPECTED_WINE_VERSION='wine-${{ matrix.wine }}' \
             -e CFW_SOURCE_REVISION='${{ github.sha }}' \
+            -e SOURCE_DATE_EPOCH="$source_date_epoch" \
             -e CFW_RUNTIME_ARTIFACT_NAME='cfw-runtime-prefix-wine-${{ matrix.wine }}' \
             -e CFW_RUNTIME_EVIDENCE_NAME='cfw-runtime-evidence-wine-${{ matrix.wine }}.json' \
             -e CFW_RUNTIME_MANIFEST_NAME='cfw-runtime-manifest-wine-${{ matrix.wine }}.json' \
             -e CFW_COMPILED_INSTALLER=/src/compat/ChoCinstaller-under-test.exe \
             -v "$PWD:/src:ro" \
             -v "$out:/out" \
-            "$IMAGE" \
+            "${{ steps.image.outputs.image }}" \
             /bin/bash /src/compat/build-runtime.sh /out \
             2>&1 | tee "$out/workflow.log"
           rc=${PIPESTATUS[0]}
@@ -106,7 +138,7 @@ jobs:
               echo '--- runtime evidence ---'
               python3 -c 'import json,sys; from pathlib import Path; p=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")); print(json.dumps({"status":p.get("status"),"checks":p.get("checks",{}),"returnCodes":p.get("returnCodes",{}),"markers":sorted(p.get("markerSha256",{}))},sort_keys=True))' "$evidence"
             fi
-            for name in build-stages installer-under-test.sha256 pwsh-policy pwsh-proof-summary pwsh-probe pwsh-failure-trace choco-feature-policy choco-feature-status choco-version synchro-x64 synchro-x86 choco-smoke-install choco-smoke-uninstall winepath-cfw-cache winepath-cfw-installer winepath-pwsh-executable winepath-pwsh-probe-script winepath-pwsh-marker wineboot; do
+            for name in build-stages installer-under-test.sha256 pwsh-policy pwsh-proof-summary pwsh-probe pwsh-failure-trace prepared-finalizer choco-feature-status choco-version synchro-x64 synchro-x86 choco-smoke-install choco-smoke-uninstall winepath-cfw-cache winepath-cfw-installer winepath-pwsh-policy winepath-pwsh-executable winepath-pwsh-probe-script winepath-pwsh-marker winepath-prepared-finalizer winepath-profile-fragments winepath-prepared-finalizer-marker wineboot; do
               path="$logs/${name}.log"
               if [ -f "$path" ]; then
                 echo "--- ${name}.log (tail) ---"
@@ -163,6 +195,7 @@ jobs:
             dist/wine-${{ matrix.wine }}/cfw-public-failure-evidence.txt
             dist/wine-${{ matrix.wine }}/cfw-runtime-evidence-wine-${{ matrix.wine }}.json
             dist/wine-${{ matrix.wine }}/cfw-runtime-manifest-wine-${{ matrix.wine }}.json
+            dist/wine-${{ matrix.wine }}/cfw-installer-under-test-wine-${{ matrix.wine }}.exe
             dist/wine-${{ matrix.wine }}/cfw-runtime-prefix-wine-${{ matrix.wine }}.tar.gz
             dist/wine-${{ matrix.wine }}/cfw-runtime-prefix-wine-${{ matrix.wine }}.tar.gz.sha256
             dist/wine-${{ matrix.wine }}/logs
@@ -175,6 +208,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download proven runtime artifacts
         uses: actions/download-artifact@v4
         with:
@@ -188,21 +223,33 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected_wines=(9.0 10.0 11.0)
+          mapfile -t expected_wines < <(python3 - <<'PY'
+          import json
+          from pathlib import Path
+          contract = json.loads(Path('compat/contract.json').read_text(encoding='utf-8'))
+          for wine in contract['build']['wineCandidates']:
+              print(wine)
+          PY
+          )
+          test "${#expected_wines[@]}" -gt 0
           for wine in "${expected_wines[@]}"; do
             mapfile -t manifests < <(find release-assets -name "cfw-runtime-manifest-wine-${wine}.json" -type f | sort)
             test "${#manifests[@]}" -eq 1
-            python3 - "${manifests[0]}" "$GITHUB_SHA" "$wine" <<'PY'
+            python3 - "${manifests[0]}" "$GITHUB_SHA" "$wine" compat/contract.json <<'PY'
           import hashlib
           import json
           import re
           import sys
+          import tarfile
           from pathlib import Path
 
           manifest_path = Path(sys.argv[1])
           source_revision = sys.argv[2]
           wine = sys.argv[3]
+          contract_path = Path(sys.argv[4])
           manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          contract = json.loads(contract_path.read_text(encoding="utf-8"))
+          assert wine in contract["build"]["wineCandidates"]
           directory = manifest_path.parent
 
           def sha256(path):
@@ -220,18 +267,42 @@ jobs:
           archive = directory / manifest["archive"]["filename"]
           evidence = directory / manifest["runtimeEvidence"]["filename"]
           checksum = directory / f"{archive.name}.sha256"
+          installer_path = directory / f"cfw-installer-under-test-wine-{wine}.exe"
+          runtime_inputs_path = Path("compat/runtime-inputs.json")
           assert archive.name == f"cfw-runtime-prefix-wine-{wine}.tar.gz"
           assert evidence.name == f"cfw-runtime-evidence-wine-{wine}.json"
           assert archive.is_file() and evidence.is_file() and checksum.is_file()
+          assert installer_path.is_file() and runtime_inputs_path.is_file()
           assert archive.stat().st_size == manifest["archive"]["bytes"]
           assert sha256(archive) == manifest["archive"]["sha256"]
           assert sha256(evidence) == manifest["runtimeEvidence"]["sha256"]
           assert checksum.read_text(encoding="utf-8") == f"{sha256(archive)}  {archive.name}\n"
           runtime = json.loads(evidence.read_text(encoding="utf-8"))
           assert runtime["status"] == "passed"
-          assert runtime["sourceRevision"] == source_revision
+          assert runtime["sourceRevision"] == manifest["sourceRevision"] == source_revision
+          assert runtime["contract"] == manifest["contract"] == contract["schemaVersion"]
+          assert manifest["contractSha256"] == sha256(contract_path)
+          assert runtime["contractSha256"] == manifest["contractSha256"]
+          assert runtime["runtimeId"] == manifest["runtimeId"]
+          assert runtime["installerSha256"] == manifest["installerSha256"]
+          assert runtime["runtimeInputsSha256"] == manifest["runtimeInputsSha256"]
+          assert sha256(installer_path) == manifest["installerSha256"]
+          assert sha256(runtime_inputs_path) == manifest["runtimeInputsSha256"]
+          assert re.fullmatch(r"[0-9a-f]{64}", runtime["installerSha256"])
+          assert re.fullmatch(r"[0-9a-f]{64}", runtime["runtimeInputsSha256"])
           assert runtime["wine"] == manifest["wine"]
-          assert all(runtime["checks"].values())
+          assert runtime["wine"]["version"] == f"wine-{wine}"
+          assert manifest["requiredProofs"] == contract["build"]["requiredProofs"]
+          assert set(runtime["checks"]) == set(contract["build"]["requiredProofs"])
+          assert manifest["interfaces"] == contract["artifact"]["interfaces"]
+          assert all(value is True for value in runtime["checks"].values())
+          with tarfile.open(archive, mode="r:gz") as tar:
+              archive_names = set(tar.getnames())
+              archive_runtime = tar.extractfile("./.cfw/runtime.json")
+              assert archive_runtime is not None
+              assert archive_runtime.read() == evidence.read_bytes()
+              choco_interface = "./" + contract["artifact"]["interfaces"]["chocolatey"]["prefixRelativePath"]
+              assert choco_interface in archive_names
           PY
           done
 
@@ -243,7 +314,7 @@ jobs:
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
           mapfile -t assets < <(find release-assets -type f \( -name '*.tar.gz' -o -name '*.tar.gz.sha256' -o -name 'cfw-runtime-evidence-wine-*.json' -o -name 'cfw-runtime-manifest-wine-*.json' \) | sort)
-          test "${#assets[@]}" -eq 12
+          test "${#assets[@]}" -eq 4
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "[cfw] release already exists and is immutable: $tag" >&2
             exit 1

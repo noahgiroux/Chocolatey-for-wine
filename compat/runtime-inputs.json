@@ -1,6 +1,11 @@
 {
   "schemaVersion": "cfw.runtime-inputs/v1",
   "runtimeId": "cfw-chocolatey-2.6.0-powershell-7.5.5-synchro-4.2.0",
+  "versions": {
+    "chocolatey": "2.6.0",
+    "powershell": "7.5.5",
+    "synchro": "4.2.0"
+  },
   "downloads": {
     "cfwRelease": {
       "url": "https://github.com/noahgiroux/Chocolatey-for-wine/releases/download/v0.5c.755-noah.6/Chocolatey-for-wine.7z",
