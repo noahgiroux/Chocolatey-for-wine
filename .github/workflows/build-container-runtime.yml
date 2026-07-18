@@ -83,17 +83,24 @@ jobs:
           capture="$out/cfw-public-failure-evidence.txt"
           {
             echo "wine=${{ matrix.wine }} build_exit_code=${{ steps.build.outputs.exit_code }}"
-            for name in build-stages winepath-cfw-cache winepath-cfw-installer wineboot installer; do
+            evidence="$out/cfw-runtime-evidence-wine-${{ matrix.wine }}.json"
+            if [ -f "$evidence" ]; then
+              echo '--- runtime evidence ---'
+              python3 -c 'import json,sys; from pathlib import Path; p=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")); print(json.dumps({"status":p.get("status"),"checks":p.get("checks",{}),"returnCodes":p.get("returnCodes",{}),"markers":sorted(p.get("markerSha256",{}))},sort_keys=True))' "$evidence"
+            fi
+            for name in build-stages pwsh-probe choco-feature-policy choco-feature-status choco-version synchro-x64 synchro-x86 choco-smoke-install choco-smoke-uninstall winepath-cfw-cache winepath-cfw-installer wineboot; do
               path="$logs/${name}.log"
               if [ -f "$path" ]; then
                 echo "--- ${name}.log (tail) ---"
-                tail -80 "$path"
+                tail -40 "$path"
               fi
             done
+            echo '--- installer stages ---'
+            grep -a '^\[cfw\] stage=' "$logs/installer.log" 2>/dev/null || true
             echo "--- workflow.log (tail) ---"
-            tail -100 "$out/workflow.log" 2>/dev/null || true
+            tail -60 "$out/workflow.log" 2>/dev/null || true
           } > "$capture"
-          evidence_b64="$(head -c 6000 "$capture" | base64 -w0)"
+          evidence_b64="$(head -c 2600 "$capture" | base64 -w0)"
           echo "::error title=CFW runtime build failed::wine=${{ matrix.wine }} rc=${{ steps.build.outputs.exit_code }} evidence_b64=${evidence_b64}"
           cat "$capture"
 
