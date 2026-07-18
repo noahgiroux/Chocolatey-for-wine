@@ -294,9 +294,10 @@ probe_dir="$wine_prefix/drive_c/ProgramData/CFW/RuntimeProbe"
 pwsh_marker="$probe_dir/pwsh.txt"
 mkdir -p "$probe_dir"
 rm -f "$pwsh_marker"
-pwsh_marker_win="$(winepath -w "$pwsh_marker")"
+pwsh_win="$(winepath_to_windows pwsh-executable "$pwsh")"
+pwsh_marker_win="$(winepath_to_windows pwsh-marker "$pwsh_marker")"
 set +e
-timeout --kill-after=15s 300s wine "$pwsh" -NoLogo -NoProfile -NonInteractive -Command \
+timeout --kill-after=15s 300s wine "$pwsh_win" -NoLogo -NoProfile -NonInteractive -Command \
   "[IO.File]::WriteAllText('$pwsh_marker_win',\$PSVersionTable.PSVersion.ToString()); [Console]::Out.WriteLine('[cfw] pwsh=' + \$PSVersionTable.PSVersion.ToString())" \
   >"$logs/pwsh-probe.log" 2>&1
 pwsh_rc="$?"
@@ -304,8 +305,22 @@ timeout --kill-after=10s 120s wineserver -w >>"$logs/pwsh-probe.log" 2>&1
 pwsh_settle_rc="$?"
 set -e
 if [[ "$pwsh_rc" -ne 0 || "$pwsh_settle_rc" -ne 0 || ! -s "$pwsh_marker" ]]; then
-  printf 'PowerShell runtime proof failed: process=%s settle=%s marker=%s\n' "$pwsh_rc" "$pwsh_settle_rc" "$pwsh_marker" >&2
+  if [[ -s "$pwsh_marker" ]]; then marker_status=present; else marker_status=missing; fi
+  printf 'PowerShell runtime proof failed: process=%s settle=%s marker=%s path=%s\n' \
+    "$pwsh_rc" "$pwsh_settle_rc" "$marker_status" "$pwsh_win" \
+    | tee "$logs/pwsh-proof-summary.log" >&2
   cat "$logs/pwsh-probe.log" >&2 || true
+  set +e
+  WINEDEBUG=+process,+loaddll,+seh timeout --kill-after=15s 90s \
+    wine "$pwsh_win" -NoLogo -NoProfile -NonInteractive -Command \
+    "[Console]::Out.WriteLine('[cfw] pwsh-failure-trace-alive')" \
+    >"$logs/pwsh-failure-trace.log" 2>&1
+  trace_rc="$?"
+  timeout --kill-after=10s 60s wineserver -w >>"$logs/pwsh-failure-trace.log" 2>&1
+  trace_settle_rc="$?"
+  set -e
+  printf 'failure-trace process=%s settle=%s\n' "$trace_rc" "$trace_settle_rc" \
+    | tee -a "$logs/pwsh-proof-summary.log" >&2
   exit 70
 fi
 
