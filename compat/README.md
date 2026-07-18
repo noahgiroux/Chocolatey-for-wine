@@ -58,7 +58,7 @@ The runtime build is valid only when all behavioral proofs pass:
 1. a contract-selected, bounded `wine --version` probe observes exactly the declared Wine candidate and settles against
    the digest-pinned producer image;
 2. the fresh win64 prefix initializes and the CFW native bootstrap completes;
-3. every Wine path conversion and pre-PowerShell Wine policy command runs under its own timeout, settles independently, and records command/settlement evidence;
+3. every Wine path conversion and pre-PowerShell Wine policy command runs under its own timeout, settles independently, and records command/settlement evidence; the policy mirrors CFW's maintained `pwsh.exe` overrides (`amsi=""`, `dwmapi=""`, and `rpcrt4=native,builtin`);
 4. `pwsh.exe` emits script entry, reports the exact locked version, and creates
    a matching filesystem sentinel;
 5. the prepared-runtime PowerShell finalizer completes and creates its sentinel;

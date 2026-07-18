@@ -28,7 +28,7 @@ The machine-readable contract is [`compat/contract.json`](compat/contract.json).
 inputs. It requires all of the following before producing an artifact:
 
 - the full CFW installer exits successfully and Wine settles;
-- the source-controlled pre-PowerShell Wine policy is applied;
+- the source-controlled pre-PowerShell Wine policy, including CFW's maintained `pwsh.exe` RPC override, is applied and independently evidenced;
 - Windows `pwsh.exe` emits script entry, reports the exact locked version, and
   creates a matching filesystem sentinel;
 - the CFW prepared-runtime PowerShell finalizer completes and creates its
