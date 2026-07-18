@@ -74,5 +74,8 @@ if ($LASTEXITCODE -ne 0) {
 
 $markerParent = Split-Path -Parent $MarkerPath
 New-Item -ItemType Directory -Force -Path $markerParent | Out-Null
-[IO.File]::WriteAllText($MarkerPath, 'prepared')
+[IO.File]::WriteAllText(
+    $MarkerPath,
+    "[cfw] stage=prepared-finalizer-script-entry`n[cfw] stage=prepared-finalizer-complete`n"
+)
 [Console]::Out.WriteLine('[cfw] stage=prepared-finalizer-complete')

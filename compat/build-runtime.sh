@@ -415,11 +415,19 @@ if [[ "$pwsh_winecfg_rc" -ne 0 || "$pwsh_winecfg_settle_rc" -ne 0 || \
 fi
 
 mark_stage prove-pwsh
+command -v wineconsole >/dev/null
+: "${DISPLAY:?CFW PowerShell proof requires the producer image X display}"
 probe_dir="$wine_prefix/drive_c/ProgramData/CFW/RuntimeProbe"
 pwsh_marker="$probe_dir/pwsh.txt"
+pwsh_evidence="$probe_dir/pwsh-evidence.txt"
+pwsh_evidence_expected="$logs/pwsh-evidence.expected"
+pwsh_marker_expected="$logs/pwsh-marker.expected"
 pwsh_probe_script="$probe_dir/pwsh-probe.ps1"
 mkdir -p "$probe_dir"
-rm -f "$pwsh_marker"
+rm -f "$pwsh_marker" "$pwsh_evidence"
+printf '[cfw] pwsh-script-entry\n[cfw] pwsh=%s\n' \
+  "$CFW_EXPECTED_POWERSHELL_VERSION" >"$pwsh_evidence_expected"
+printf '%s' "$CFW_EXPECTED_POWERSHELL_VERSION" >"$pwsh_marker_expected"
 cat > "$pwsh_probe_script" <<'PS1'
 param(
     [Parameter(Mandatory = $true)][string]$MarkerPath,
@@ -429,33 +437,35 @@ $ErrorActionPreference = 'Stop'
 [Console]::Out.WriteLine('[cfw] pwsh-script-entry')
 $version = $PSVersionTable.PSVersion.ToString()
 [Console]::Out.WriteLine('[cfw] pwsh=' + $version)
+$evidencePath = Join-Path (Split-Path -Parent $MarkerPath) 'pwsh-evidence.txt'
+[IO.File]::WriteAllText(
+    $evidencePath,
+    "[cfw] pwsh-script-entry`n[cfw] pwsh=$version`n"
+)
 if ($version -cne $ExpectedVersion) {
     throw "PowerShell version mismatch: expected=$ExpectedVersion observed=$version"
 }
 [IO.File]::WriteAllText($MarkerPath, $version)
 PS1
 pwsh_win="$(winepath_to_windows pwsh-executable "$pwsh")"
+pwsh_launcher=(wineconsole "$pwsh_win")
 pwsh_probe_script_win="$(winepath_to_windows pwsh-probe-script "$pwsh_probe_script")"
 pwsh_marker_win="$(winepath_to_windows pwsh-marker "$pwsh_marker")"
 set +e
-timeout --kill-after=15s 300s wine "$pwsh_win" -NoLogo -NoProfile -NonInteractive \
+timeout --kill-after=15s 300s "${pwsh_launcher[@]}" -NoLogo -NoProfile -NonInteractive \
   -File "$pwsh_probe_script_win" "$pwsh_marker_win" "$CFW_EXPECTED_POWERSHELL_VERSION" \
   >"$logs/pwsh-probe.log" 2>&1
 pwsh_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/pwsh-probe.log" 2>&1
 pwsh_settle_rc="$?"
+if [[ -s "$pwsh_evidence" ]]; then
+  cat "$pwsh_evidence" >>"$logs/pwsh-probe.log"
+fi
 normalize_log "$logs/pwsh-probe.log"
-if grep -Fqx '[cfw] pwsh-script-entry' "$logs/pwsh-probe.log"; then
-  pwsh_entry_rc=0
-else
-  pwsh_entry_rc="$?"
-fi
-if grep -Fqx "[cfw] pwsh=$CFW_EXPECTED_POWERSHELL_VERSION" "$logs/pwsh-probe.log" && \
-   [[ "$(tr -d '\r\n' < "$pwsh_marker")" == "$CFW_EXPECTED_POWERSHELL_VERSION" ]]; then
-  pwsh_version_rc=0
-else
-  pwsh_version_rc=1
-fi
+cmp -s "$pwsh_evidence_expected" "$pwsh_evidence"
+pwsh_entry_rc="$?"
+cmp -s "$pwsh_marker_expected" "$pwsh_marker"
+pwsh_version_rc="$?"
 set -e
 if [[ "$pwsh_rc" -ne 0 || "$pwsh_settle_rc" -ne 0 || "$pwsh_entry_rc" -ne 0 || "$pwsh_version_rc" -ne 0 || ! -s "$pwsh_marker" ]]; then
   if [[ -s "$pwsh_marker" ]]; then marker_status=present; else marker_status=missing; fi
@@ -471,7 +481,7 @@ if [[ "$pwsh_rc" -ne 0 || "$pwsh_settle_rc" -ne 0 || "$pwsh_entry_rc" -ne 0 || "
   COREHOST_TRACEFILE='C:\ProgramData\CFW\RuntimeProbe\pwsh-host-trace.log' \
   DOTNET_HOST_TRACE=1 DOTNET_HOST_TRACE_VERBOSITY=4 \
   DOTNET_HOST_TRACEFILE='C:\ProgramData\CFW\RuntimeProbe\dotnet-host-trace.log' \
-  timeout --kill-after=15s 90s wine "$pwsh_win" -NoLogo -NoProfile -NonInteractive -Version \
+  timeout --kill-after=15s 90s "${pwsh_launcher[@]}" -NoLogo -NoProfile -NonInteractive -Version \
     >"$logs/pwsh-host-probe.log" 2>&1
   host_probe_rc="$?"
   timeout --kill-after=10s 60s wineserver -w >>"$logs/pwsh-host-probe.log" 2>&1
@@ -484,7 +494,7 @@ if [[ "$pwsh_rc" -ne 0 || "$pwsh_settle_rc" -ne 0 || "$pwsh_entry_rc" -ne 0 || "
     "$([[ -s "$dotnet_host_trace" ]] && printf present || printf missing)" \
     | tee -a "$logs/pwsh-proof-summary.log" >&2
   WINEDEBUG=+process,+loaddll,+seh timeout --kill-after=15s 90s \
-    wine "$pwsh_win" -NoLogo -NoProfile -NonInteractive \
+    "${pwsh_launcher[@]}" -NoLogo -NoProfile -NonInteractive \
     -File "$pwsh_probe_script_win" "$pwsh_marker_win" "$CFW_EXPECTED_POWERSHELL_VERSION" \
     >"$logs/pwsh-failure-trace.log" 2>&1
   trace_rc="$?"
@@ -502,21 +512,26 @@ prepared_finalizer_win="$(winepath_to_windows prepared-finalizer "$prepared_fina
 profile_fragments_win="$(winepath_to_windows profile-fragments "$repo_root/compat/profile.d")"
 prepared_finalizer_marker="$probe_dir/prepared-finalizer.txt"
 prepared_finalizer_marker_win="$(winepath_to_windows prepared-finalizer-marker "$prepared_finalizer_marker")"
+prepared_finalizer_expected="$logs/prepared-finalizer.expected"
 rm -f "$prepared_finalizer_marker"
+printf '[cfw] stage=prepared-finalizer-script-entry\n[cfw] stage=prepared-finalizer-complete\n' \
+  >"$prepared_finalizer_expected"
 set +e
-timeout --kill-after=15s 300s wine "$pwsh_win" -NoLogo -NoProfile -NonInteractive \
+timeout --kill-after=15s 300s "${pwsh_launcher[@]}" -NoLogo -NoProfile -NonInteractive \
   -File "$prepared_finalizer_win" -FragmentSource "$profile_fragments_win" -MarkerPath "$prepared_finalizer_marker_win" \
   >"$logs/prepared-finalizer.log" 2>&1
 prepared_finalizer_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/prepared-finalizer.log" 2>&1
 prepared_finalizer_settle_rc="$?"
 normalize_log "$logs/prepared-finalizer.log"
+cmp -s "$prepared_finalizer_expected" "$prepared_finalizer_marker"
+prepared_finalizer_evidence_rc="$?"
 set -e
-if [[ "$prepared_finalizer_rc" -ne 0 || "$prepared_finalizer_settle_rc" -ne 0 || ! -s "$prepared_finalizer_marker" ]] || \
-   ! grep -Fqx '[cfw] stage=prepared-finalizer-script-entry' "$logs/prepared-finalizer.log" || \
-   ! grep -Fqx '[cfw] stage=prepared-finalizer-complete' "$logs/prepared-finalizer.log"; then
-  printf 'Prepared runtime finalizer failed: process=%s settle=%s marker=%s\n' \
-    "$prepared_finalizer_rc" "$prepared_finalizer_settle_rc" "$prepared_finalizer_marker" >&2
+if [[ "$prepared_finalizer_rc" -ne 0 || "$prepared_finalizer_settle_rc" -ne 0 || \
+      "$prepared_finalizer_evidence_rc" -ne 0 ]]; then
+  printf 'Prepared runtime finalizer failed: process=%s settle=%s evidence=%s marker=%s\n' \
+    "$prepared_finalizer_rc" "$prepared_finalizer_settle_rc" \
+    "$prepared_finalizer_evidence_rc" "$prepared_finalizer_marker" >&2
   cat "$logs/prepared-finalizer.log" >&2 || true
   exit 70
 fi
@@ -596,7 +611,8 @@ python3 - "$metadata" \
   "$wine_version_rc" "$wine_version_settle_rc" \
   "$pwsh_winecfg_rc" "$pwsh_winecfg_settle_rc" "$pwsh_regedit_rc" "$pwsh_regedit_settle_rc" \
   "$pwsh_query_rc" "$pwsh_query_settle_rc" "$pwsh_amsi_rc" "$pwsh_dwmapi_rc" "$pwsh_rpcrt4_rc" \
-  "$logs" "$pwsh_marker" "$prepared_finalizer_marker" "$synchro64_marker" "$synchro32_marker" "$smoke_install_marker" "$smoke_uninstall_marker" <<'PY2'
+  "$logs" "$pwsh_marker" "$prepared_finalizer_marker" "$synchro64_marker" "$synchro32_marker" \
+  "$smoke_install_marker" "$smoke_uninstall_marker" "$pwsh_evidence" <<'PY2'
 import hashlib
 import json
 import os
@@ -636,7 +652,15 @@ marker_hashes = {
     for marker in markers
     if marker.is_file() and marker.stat().st_size > 0
 }
-observed_powershell = markers[0].read_text(encoding="utf-8").strip()
+observed_powershell = markers[0].read_text(encoding="utf-8")
+expected_pwsh_evidence = (
+    "[cfw] pwsh-script-entry\n"
+    f"[cfw] pwsh={os.environ['CFW_EXPECTED_POWERSHELL_VERSION']}\n"
+).encode("utf-8")
+expected_finalizer_evidence = (
+    b"[cfw] stage=prepared-finalizer-script-entry\n"
+    b"[cfw] stage=prepared-finalizer-complete\n"
+)
 checks = {
     "wineIdentity": values[20] == 0 and values[21] == 0 and os.environ["CFW_OBSERVED_WINE_VERSION"] == os.environ["CFW_EXPECTED_WINE_VERSION"],
     "installer": values[0] == 0 and values[1] == 0,
@@ -645,8 +669,8 @@ checks = {
         codes["command"] == 0 and codes["settle"] == 0
         for codes in winepath_return_codes.values()
     ),
-    "pwsh": values[2] == 0 and values[3] == 0 and observed_powershell == os.environ["CFW_EXPECTED_POWERSHELL_VERSION"] and "pwsh.txt" in marker_hashes,
-    "preparedFinalizer": values[4] == 0 and values[5] == 0 and "prepared-finalizer.txt" in marker_hashes,
+    "pwsh": values[2] == 0 and values[3] == 0 and observed_powershell == os.environ["CFW_EXPECTED_POWERSHELL_VERSION"] and "pwsh.txt" in marker_hashes and "pwsh-evidence.txt" in marker_hashes and markers[6].read_bytes() == expected_pwsh_evidence,
+    "preparedFinalizer": values[4] == 0 and values[5] == 0 and "prepared-finalizer.txt" in marker_hashes and markers[1].read_bytes() == expected_finalizer_evidence,
     "featurePolicy": values[6] == 0 and values[7] == 0 and values[8] == 0,
     "chocolatey": values[9] == 0 and values[10] == 0 and values[11] == 0 and os.environ["CFW_OBSERVED_CHOCOLATEY_VERSION"] == os.environ["CFW_EXPECTED_CHOCOLATEY_VERSION"],
     "synchroX64": values[12] == 0 and values[13] == 0 and "synchro-x64.txt" in marker_hashes,

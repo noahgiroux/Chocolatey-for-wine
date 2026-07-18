@@ -54,17 +54,17 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("[cfw] pwsh-script-entry", source)
         self.assertIn("pwsh_entry_rc", source)
         self.assertIn("pwsh_version_rc", source)
-        self.assertIn("if grep -Fqx '[cfw] pwsh-script-entry'", source)
+        self.assertIn('cmp -s "$pwsh_evidence_expected" "$pwsh_evidence"', source)
         self.assertIn("CFW_EXPECTED_POWERSHELL_VERSION", source)
-        self.assertIn('grep -Fqx "[cfw] pwsh=$CFW_EXPECTED_POWERSHELL_VERSION"', source)
-        self.assertIn('[[ "$(tr -d \'\\r\\n\' < "$pwsh_marker")" == "$CFW_EXPECTED_POWERSHELL_VERSION" ]]', source)
+        self.assertIn('cmp -s "$pwsh_marker_expected" "$pwsh_marker"', source)
+        self.assertNotIn('tr -d \'\\r\\n\' < "$pwsh_marker"', source)
         self.assertIn("pwsh-proof-summary.log", source)
         self.assertIn("pwsh-failure-trace.log", source)
         self.assertIn("WINEDEBUG=+process,+loaddll,+seh", source)
         self.assertIn("COREHOST_TRACE=1", source)
         self.assertIn("DOTNET_HOST_TRACE=1", source)
         self.assertIn("pwsh-host-probe.log", source)
-        self.assertIn("timeout --kill-after=15s 90s wine", source)
+        self.assertIn('WINEDEBUG=+process,+loaddll,+seh timeout --kill-after=15s 90s \\\n    "${pwsh_launcher[@]}"', source)
         self.assertLess(source.index("PowerShell runtime proof failed"), source.index("COREHOST_TRACE=1"))
         self.assertIn("mark_stage apply-pre-pwsh-policy", source)
         self.assertIn("pwsh-policy.log", source)
@@ -130,6 +130,121 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn('"requiredProofs": required_proofs', source)
         self.assertIn('"interfaces": contract["artifact"]["interfaces"]', source)
 
+    def test_pwsh_boundaries_receive_a_real_wine_console(self) -> None:
+        source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
+
+        self.assertIn('command -v wineconsole >/dev/null', source)
+        self.assertIn(': "${DISPLAY:?CFW PowerShell proof requires the producer image X display}"', source)
+        self.assertIn('pwsh_launcher=(wineconsole "$pwsh_win")', source)
+        self.assertNotIn('wineconsole --backend=', source)
+        self.assertIn('pwsh_evidence="$probe_dir/pwsh-evidence.txt"', source)
+        self.assertIn('pwsh_evidence_expected="$logs/pwsh-evidence.expected"', source)
+        self.assertIn('pwsh_marker_expected="$logs/pwsh-marker.expected"', source)
+        self.assertIn('cmp -s "$pwsh_evidence_expected" "$pwsh_evidence"', source)
+        self.assertIn('cmp -s "$pwsh_marker_expected" "$pwsh_marker"', source)
+        self.assertIn('cat "$pwsh_evidence" >>"$logs/pwsh-probe.log"', source)
+        self.assertIn('timeout --kill-after=15s 300s "${pwsh_launcher[@]}" -NoLogo -NoProfile -NonInteractive', source)
+        self.assertIn('WINEDEBUG=+process,+loaddll,+seh timeout --kill-after=15s 90s \\\n    "${pwsh_launcher[@]}"', source)
+        self.assertIn('timeout --kill-after=15s 300s "${pwsh_launcher[@]}" -NoLogo -NoProfile -NonInteractive \\\n  -File "$prepared_finalizer_win"', source)
+        self.assertIn('prepared_finalizer_expected="$logs/prepared-finalizer.expected"', source)
+        self.assertIn('cmp -s "$prepared_finalizer_expected" "$prepared_finalizer_marker"', source)
+        self.assertNotIn("grep -Fqx '[cfw] stage=prepared-finalizer-script-entry' \"$prepared_finalizer_marker\"", source)
+        self.assertIn('"$smoke_install_marker" "$smoke_uninstall_marker" "$pwsh_evidence"', source)
+        self.assertIn('"pwsh-evidence.txt" in marker_hashes', source)
+        self.assertIn('markers[6].read_bytes() == expected_pwsh_evidence', source)
+        self.assertIn('markers[1].read_bytes() == expected_finalizer_evidence', source)
+        finalizer = (ROOT / "compat" / "finalize-runtime.ps1").read_text(encoding="utf-8")
+        self.assertIn("[IO.File]::WriteAllText(", finalizer)
+        self.assertIn("prepared-finalizer-script-entry`n[cfw] stage=prepared-finalizer-complete`n", finalizer)
+
+    def test_runtime_evidence_rejects_noncanonical_persisted_proofs(self) -> None:
+        source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
+        anchor = 'path = Path(sys.argv[1])\nvalues = [int(value) for value in sys.argv[2:33]]'
+        anchor_index = source.index(anchor)
+        program_start = source.rfind("<<'PY2'\n", 0, anchor_index) + len("<<'PY2'\n")
+        program_end = source.index("\nPY2\n", anchor_index)
+        evidence_program = source[program_start:program_end]
+        winepath_labels = (
+            "cfw-cache", "cfw-installer", "pwsh-policy", "pwsh-executable",
+            "pwsh-probe-script", "pwsh-marker", "prepared-finalizer",
+            "profile-fragments", "prepared-finalizer-marker", "synchro-x64-marker",
+            "synchro-x86-marker", "smoke-feed",
+        )
+        environment = {
+            **os.environ,
+            "CFW_OBSERVED_WINE_VERSION": "wine-11.0",
+            "CFW_EXPECTED_WINE_VERSION": "wine-11.0",
+            "CFW_EXPECTED_POWERSHELL_VERSION": "7.5.5",
+            "CFW_OBSERVED_CHOCOLATEY_VERSION": "2.6.0",
+            "CFW_EXPECTED_CHOCOLATEY_VERSION": "2.6.0",
+            "CFW_CONTRACT_SCHEMA": "cfw.compatibility-contract/v3",
+            "CFW_CONTRACT_SHA256": "0" * 64,
+            "CFW_RUNTIME_ID": "cfw-wine-11.0",
+            "CFW_WINE_IMAGE": "ghcr.io/pelagians/cage-wine@sha256:" + "1" * 64,
+            "CFW_SOURCE_REVISION": "2" * 40,
+            "CFW_INSTALLER_SHA256": "3" * 64,
+            "CFW_RUNTIME_INPUTS_SHA256": "4" * 64,
+            "CFW_EXPECTED_SYNCHRO_VERSION": "4.2.0",
+        }
+        canonical = (
+            b"7.5.5",
+            b"[cfw] stage=prepared-finalizer-script-entry\n[cfw] stage=prepared-finalizer-complete\n",
+            b"synchro-x64", b"synchro-x86", b"installed", b"uninstalled",
+            b"[cfw] pwsh-script-entry\n[cfw] pwsh=7.5.5\n",
+        )
+        cases = {
+            "canonical": (0, "passed", None),
+            "missing-pwsh-evidence": (70, "failed", (6, None)),
+            "duplicate-pwsh-evidence": (70, "failed", (6, canonical[6] + canonical[6])),
+            "fragmented-version-marker": (70, "failed", (0, b"7.\n5.5")),
+            "extra-finalizer-token": (
+                70,
+                "failed",
+                (1, canonical[1] + b"[cfw] stage=prepared-finalizer-complete\n"),
+            ),
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            logs = root / "logs"
+            logs.mkdir()
+            for label in winepath_labels:
+                (logs / f"winepath-{label}.status").write_text("0 0\n", encoding="utf-8")
+            markers = [
+                root / name for name in (
+                    "pwsh.txt", "prepared-finalizer.txt", "synchro-x64.txt",
+                    "synchro-x86.txt", "chocolatey-install.txt",
+                    "chocolatey-uninstall.txt", "pwsh-evidence.txt",
+                )
+            ]
+            for case, (expected_rc, expected_status, mutation) in cases.items():
+                for marker, content in zip(markers, canonical):
+                    marker.write_bytes(content)
+                if mutation is not None:
+                    marker_index, content = mutation
+                    if content is None:
+                        markers[marker_index].unlink()
+                    else:
+                        markers[marker_index].write_bytes(content)
+                metadata = root / f"{case}.json"
+                arguments = [
+                    str(metadata), *("0" for _ in range(31)), str(logs),
+                    *(str(marker) for marker in markers),
+                ]
+                result = subprocess.run(
+                    ["python3", "-", *arguments],
+                    input=evidence_program,
+                    text=True,
+                    capture_output=True,
+                    env=environment,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, expected_rc, case)
+                self.assertEqual(
+                    json.loads(metadata.read_text(encoding="utf-8"))["status"],
+                    expected_status,
+                    case,
+                )
+
     def test_windows_crlf_feature_status_is_normalized_before_exact_match(self) -> None:
         raw = "powershellHost|disabled\r\n"
         normalized = raw.replace("\r", "")
@@ -145,7 +260,7 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn('CFW_RUNTIME_ID="$(runtime_value runtimeId)"', source)
         self.assertIn('CFW_EXPECTED_POWERSHELL_VERSION="$(runtime_version powershell)"', source)
         self.assertIn('CFW_EXPECTED_CHOCOLATEY_VERSION="$(runtime_version chocolatey)"', source)
-        self.assertIn('observed_powershell = markers[0].read_text(encoding="utf-8").strip()', source)
+        self.assertIn('observed_powershell = markers[0].read_text(encoding="utf-8")', source)
         self.assertIn('"powershell": observed_powershell', source)
         self.assertIn('"runtimeId": os.environ["CFW_RUNTIME_ID"]', source)
 
