@@ -106,7 +106,11 @@ class LayerContractTests(unittest.TestCase):
         self.assertEqual(inputs["downloads"]["synchro64"]["sha256"], "b1d594bd44abc01007b9dd2adea5248f09906fa8d4c6cea7f36a4279e2de91e0")
         self.assertEqual(inputs["downloads"]["synchro32"]["sha256"], "ca76d774273ffa37053545f8e4ad63c8914461828f1d1eef7a1915c9656fed4c")
         finalizer = (ROOT / "compat" / "finalize-runtime.ps1").read_text(encoding="utf-8")
-        self.assertIn("feature disable --name=powershellHost", finalizer)
+        self.assertNotIn("feature disable --name=powershellHost", finalizer)
+        self.assertIn("mark_stage disable-chocolatey-powershell-host", source)
+        self.assertIn('wine "$choco_win" feature disable --name=powershellHost', source)
+        self.assertIn("feature_disable_rc", source)
+        self.assertIn("feature_disable_settle_rc", source)
         self.assertIn("pwsh-probe.log", source)
         self.assertIn('normalize_log "$logs/pwsh-probe.log"', source)
         self.assertIn('normalize_log "$logs/prepared-finalizer.log"', source)
@@ -161,10 +165,10 @@ class LayerContractTests(unittest.TestCase):
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
         lines = [line.strip() for line in source.splitlines()]
 
-        self.assertEqual(lines.count("trap - ERR"), 11)
-        self.assertEqual(lines.count("set +e"), 11)
-        self.assertEqual(lines.count("set -e"), 11)
-        self.assertEqual(lines.count("trap on_error ERR"), 12)
+        self.assertEqual(lines.count("trap - ERR"), 12)
+        self.assertEqual(lines.count("set +e"), 12)
+        self.assertEqual(lines.count("set -e"), 12)
+        self.assertEqual(lines.count("trap on_error ERR"), 13)
         for index, line in enumerate(lines):
             if line == "set +e":
                 self.assertEqual(lines[index - 1], "trap - ERR")
@@ -267,7 +271,7 @@ class LayerContractTests(unittest.TestCase):
 
     def test_runtime_evidence_rejects_noncanonical_persisted_proofs(self) -> None:
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
-        anchor = 'path = Path(sys.argv[1])\nvalues = [int(value) for value in sys.argv[2:33]]'
+        anchor = 'path = Path(sys.argv[1])\nvalues = [int(value) for value in sys.argv[2:35]]'
         anchor_index = source.index(anchor)
         program_start = source.rfind("<<'PY2'\n", 0, anchor_index) + len("<<'PY2'\n")
         program_end = source.index("\nPY2\n", anchor_index)
@@ -335,7 +339,7 @@ class LayerContractTests(unittest.TestCase):
                         markers[marker_index].write_bytes(content)
                 metadata = root / f"{case}.json"
                 arguments = [
-                    str(metadata), *("0" for _ in range(31)), str(logs),
+                    str(metadata), *("0" for _ in range(33)), str(logs),
                     *(str(marker) for marker in markers),
                 ]
                 result = subprocess.run(
@@ -379,7 +383,11 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("[cfw] stage=prepared-finalizer-script-entry", finalizer)
         self.assertIn("$ErrorActionPreference = 'Stop'", finalizer)
         self.assertIn("application-profile.d", finalizer)
-        self.assertIn("feature disable --name=powershellHost", finalizer)
+        self.assertNotIn("feature disable --name=powershellHost", finalizer)
+        self.assertIn("mark_stage disable-chocolatey-powershell-host", source)
+        self.assertIn('wine "$choco_win" feature disable --name=powershellHost', source)
+        self.assertIn("feature_disable_rc", source)
+        self.assertIn("feature_disable_settle_rc", source)
         self.assertIn("mark_stage finalize-prepared-runtime", source)
         self.assertIn('-File "$prepared_finalizer_win"', source)
         self.assertLess(
@@ -388,6 +396,10 @@ class LayerContractTests(unittest.TestCase):
         )
         self.assertLess(
             source.index('mark_stage finalize-prepared-runtime'),
+            source.index('mark_stage disable-chocolatey-powershell-host'),
+        )
+        self.assertLess(
+            source.index('mark_stage disable-chocolatey-powershell-host'),
             source.index('mark_stage prove-runtime'),
         )
         self.assertNotIn("write_cfw_profile_loader", source)
@@ -437,9 +449,9 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("must be a ghcr.io/pelagians/cage-wine digest", source)
         self.assertIn("CFW_RUNTIME_EVIDENCE_NAME", source)
         self.assertIn("CFW_RUNTIME_MANIFEST_NAME", source)
-        self.assertIn("values = [int(value) for value in sys.argv[2:33]]", source)
-        self.assertIn("logs_path = Path(sys.argv[33])", source)
-        self.assertIn("markers = [Path(value) for value in sys.argv[34:]]", source)
+        self.assertIn("values = [int(value) for value in sys.argv[2:35]]", source)
+        self.assertIn("logs_path = Path(sys.argv[35])", source)
+        self.assertIn("markers = [Path(value) for value in sys.argv[36:]]", source)
 
     def test_wine_identity_and_pre_pwsh_policy_have_isolated_settlement_evidence(self) -> None:
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
