@@ -292,28 +292,42 @@ fi
 mark_stage prove-pwsh
 probe_dir="$wine_prefix/drive_c/ProgramData/CFW/RuntimeProbe"
 pwsh_marker="$probe_dir/pwsh.txt"
+pwsh_probe_script="$probe_dir/pwsh-probe.ps1"
 mkdir -p "$probe_dir"
 rm -f "$pwsh_marker"
+cat > "$pwsh_probe_script" <<'PS1'
+param([Parameter(Mandatory = $true)][string]$MarkerPath)
+$ErrorActionPreference = 'Stop'
+[Console]::Out.WriteLine('[cfw] pwsh-script-entry')
+$version = $PSVersionTable.PSVersion.ToString()
+[IO.File]::WriteAllText($MarkerPath, $version)
+[Console]::Out.WriteLine('[cfw] pwsh=' + $version)
+PS1
 pwsh_win="$(winepath_to_windows pwsh-executable "$pwsh")"
+pwsh_probe_script_win="$(winepath_to_windows pwsh-probe-script "$pwsh_probe_script")"
 pwsh_marker_win="$(winepath_to_windows pwsh-marker "$pwsh_marker")"
 set +e
-timeout --kill-after=15s 300s wine "$pwsh_win" -NoLogo -NoProfile -NonInteractive -Command \
-  "[IO.File]::WriteAllText('$pwsh_marker_win',\$PSVersionTable.PSVersion.ToString()); [Console]::Out.WriteLine('[cfw] pwsh=' + \$PSVersionTable.PSVersion.ToString())" \
+timeout --kill-after=15s 300s wine "$pwsh_win" -NoLogo -NoProfile -NonInteractive \
+  -File "$pwsh_probe_script_win" "$pwsh_marker_win" \
   >"$logs/pwsh-probe.log" 2>&1
 pwsh_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/pwsh-probe.log" 2>&1
 pwsh_settle_rc="$?"
+grep -Fqx '[cfw] pwsh-script-entry' "$logs/pwsh-probe.log"
+pwsh_entry_rc="$?"
+grep -Eq '^\[cfw\] pwsh=7\.' "$logs/pwsh-probe.log"
+pwsh_version_rc="$?"
 set -e
-if [[ "$pwsh_rc" -ne 0 || "$pwsh_settle_rc" -ne 0 || ! -s "$pwsh_marker" ]]; then
+if [[ "$pwsh_rc" -ne 0 || "$pwsh_settle_rc" -ne 0 || "$pwsh_entry_rc" -ne 0 || "$pwsh_version_rc" -ne 0 || ! -s "$pwsh_marker" ]]; then
   if [[ -s "$pwsh_marker" ]]; then marker_status=present; else marker_status=missing; fi
-  printf 'PowerShell runtime proof failed: process=%s settle=%s marker=%s path=%s\n' \
-    "$pwsh_rc" "$pwsh_settle_rc" "$marker_status" "$pwsh_win" \
+  printf 'PowerShell runtime proof failed: process=%s settle=%s entry=%s version=%s marker=%s path=%s\n' \
+    "$pwsh_rc" "$pwsh_settle_rc" "$pwsh_entry_rc" "$pwsh_version_rc" "$marker_status" "$pwsh_win" \
     | tee "$logs/pwsh-proof-summary.log" >&2
   cat "$logs/pwsh-probe.log" >&2 || true
   set +e
   WINEDEBUG=+process,+loaddll,+seh timeout --kill-after=15s 90s \
-    wine "$pwsh_win" -NoLogo -NoProfile -NonInteractive -Command \
-    "[Console]::Out.WriteLine('[cfw] pwsh-failure-trace-alive')" \
+    wine "$pwsh_win" -NoLogo -NoProfile -NonInteractive \
+    -File "$pwsh_probe_script_win" "$pwsh_marker_win" \
     >"$logs/pwsh-failure-trace.log" 2>&1
   trace_rc="$?"
   timeout --kill-after=10s 60s wineserver -w >>"$logs/pwsh-failure-trace.log" 2>&1
