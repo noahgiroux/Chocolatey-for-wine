@@ -14,6 +14,7 @@ manifest_name="${CFW_RUNTIME_MANIFEST_NAME:-cfw-runtime-manifest.json}"
 metadata="$output_root/$evidence_name"
 manifest="$output_root/$manifest_name"
 runtime_inputs="$repo_root/compat/runtime-inputs.json"
+compiled_installer="${CFW_COMPILED_INSTALLER:-$repo_root/compat/ChoCinstaller-under-test.exe}"
 artifact_name="${CFW_RUNTIME_ARTIFACT_NAME:-cfw-runtime-prefix}"
 stage="setup"
 
@@ -30,6 +31,10 @@ done
   echo "[cfw] runtime inputs file is missing: $runtime_inputs" >&2
   exit 65
 }
+[[ -s "$compiled_installer" ]] || {
+  echo "[cfw] compiled installer under test is missing: $compiled_installer" >&2
+  exit 65
+}
 
 mkdir -p "$output_root" "$payload_cache" "$release_root" "$logs"
 export WINEPREFIX="$wine_prefix"
@@ -38,6 +43,7 @@ unset CFW_CONTAINER_BUILDER
 unset WINEDLLOVERRIDES
 
 CFW_RUNTIME_INPUTS_SHA256="$(sha256sum "$runtime_inputs" | awk '{print $1}')"
+CFW_INSTALLER_SHA256="$(sha256sum "$compiled_installer" | awk '{print $1}')"
 CFW_SOURCE_REVISION="${CFW_SOURCE_REVISION:?CFW_SOURCE_REVISION must be the exact source commit}"
 CFW_WINE_IMAGE="${CFW_WINE_IMAGE:?CFW_WINE_IMAGE must be the digest-pinned Wine producer image}"
 if [[ ! "$CFW_SOURCE_REVISION" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]; then
@@ -48,7 +54,7 @@ if [[ ! "$CFW_WINE_IMAGE" =~ ^ghcr\.io/pelagians/cage-wine@sha256:[0-9a-f]{64}$ 
   echo "[cfw] CFW_WINE_IMAGE must be a ghcr.io/pelagians/cage-wine digest" >&2
   exit 64
 fi
-export CFW_RUNTIME_INPUTS_SHA256 CFW_SOURCE_REVISION CFW_WINE_IMAGE
+export CFW_RUNTIME_INPUTS_SHA256 CFW_INSTALLER_SHA256 CFW_SOURCE_REVISION CFW_WINE_IMAGE
 
 on_error() {
   rc="$?"
@@ -219,6 +225,8 @@ rm -rf "$release_root"
 mkdir -p "$release_root"
 7z x -y "$release_archive" "-o$release_root" >"$logs/release-extract.log"
 [[ -f "$release_dir/ChoCinstaller_0.5c.755.exe" ]]
+cp -f "$compiled_installer" "$release_dir/ChoCinstaller_0.5c.755.exe"
+printf '%s  %s\n' "$CFW_INSTALLER_SHA256" "$compiled_installer" >"$logs/installer-under-test.sha256"
 verify_checkout_source choc_install.ps1 "$repo_root/choc_install.ps1"
 cp -f "$repo_root/choc_install.ps1" "$release_dir/choc_install.ps1"
 
@@ -442,6 +450,7 @@ record = {
     "status": "passed" if all(checks.values()) else "failed",
     "wine": {"image": os.environ["CFW_WINE_IMAGE"], "version": subprocess.run(["wine", "--version"], text=True, capture_output=True).stdout.strip(), "architecture": "win64"},
     "sourceRevision": os.environ["CFW_SOURCE_REVISION"],
+    "installerSha256": os.environ["CFW_INSTALLER_SHA256"],
     "runtimeInputsSha256": os.environ["CFW_RUNTIME_INPUTS_SHA256"],
     "profileLoader": {"path": "C:\\Program Files\\PowerShell\\7\\profile.ps1", "applicationExtensionPath": "C:\\ProgramData\\Chocolatey-for-wine\\application-profile.d"},
     "powershell": "7.5.5",
@@ -484,6 +493,7 @@ manifest = {
     "archive": {"filename": archive_path.name, "sha256": archive_sha256, "bytes": archive_path.stat().st_size},
     "runtimeEvidence": {"filename": evidence_path.name, "sha256": hashlib.sha256(evidence_path.read_bytes()).hexdigest()},
     "sourceRevision": evidence["sourceRevision"],
+    "installerSha256": evidence["installerSha256"],
     "runtimeInputsSha256": evidence["runtimeInputsSha256"],
     "wine": evidence["wine"],
     "profileLoader": evidence["profileLoader"],

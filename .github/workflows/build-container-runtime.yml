@@ -9,12 +9,14 @@ on:
       - cfw-runtime-v*
     paths:
       - 'compat/**'
+      - 'installer.c'
       - 'choc_install.ps1'
       - 'winetricks.ps1'
       - '.github/workflows/build-container-runtime.yml'
   pull_request:
     paths:
       - 'compat/**'
+      - 'installer.c'
       - 'choc_install.ps1'
       - 'winetricks.ps1'
       - '.github/workflows/build-container-runtime.yml'
@@ -37,6 +39,21 @@ jobs:
       IMAGE: ghcr.io/pelagians/cage-wine:${{ matrix.wine }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Compile CFW installer under test
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64
+          x86_64-w64-mingw32-gcc -O2 -fno-ident -fno-stack-protector -fomit-frame-pointer \
+            -fno-unwind-tables -fno-asynchronous-unwind-tables -mconsole -municode \
+            -mno-stack-arg-probe -Xlinker --stack=0x200000,0x200000 -nostdlib -Wall -Wextra \
+            -finline-limit=64 -Wl,-gc-sections installer.c -lurlmon -lkernel32 -lucrtbase \
+            -luser32 -nostdlib -ladvapi32 -lntdll -lshell32 -lole32 -luuid -s \
+            -Wl,--major-subsystem-version,6,--minor-subsystem-version,0 \
+            -o compat/ChoCinstaller-under-test.exe
+          test -s compat/ChoCinstaller-under-test.exe
 
       - name: Pull and resolve Cage Wine runtime
         id: image
@@ -63,6 +80,7 @@ jobs:
             -e CFW_RUNTIME_ARTIFACT_NAME='cfw-runtime-prefix-wine-${{ matrix.wine }}' \
             -e CFW_RUNTIME_EVIDENCE_NAME='cfw-runtime-evidence-wine-${{ matrix.wine }}.json' \
             -e CFW_RUNTIME_MANIFEST_NAME='cfw-runtime-manifest-wine-${{ matrix.wine }}.json' \
+            -e CFW_COMPILED_INSTALLER=/src/compat/ChoCinstaller-under-test.exe \
             -v "$PWD:/src:ro" \
             -v "$out:/out" \
             "$IMAGE" \
@@ -88,7 +106,7 @@ jobs:
               echo '--- runtime evidence ---'
               python3 -c 'import json,sys; from pathlib import Path; p=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")); print(json.dumps({"status":p.get("status"),"checks":p.get("checks",{}),"returnCodes":p.get("returnCodes",{}),"markers":sorted(p.get("markerSha256",{}))},sort_keys=True))' "$evidence"
             fi
-            for name in build-stages pwsh-policy pwsh-proof-summary pwsh-probe pwsh-failure-trace choco-feature-policy choco-feature-status choco-version synchro-x64 synchro-x86 choco-smoke-install choco-smoke-uninstall winepath-cfw-cache winepath-cfw-installer winepath-pwsh-executable winepath-pwsh-probe-script winepath-pwsh-marker wineboot; do
+            for name in build-stages installer-under-test.sha256 pwsh-policy pwsh-proof-summary pwsh-probe pwsh-failure-trace choco-feature-policy choco-feature-status choco-version synchro-x64 synchro-x86 choco-smoke-install choco-smoke-uninstall winepath-cfw-cache winepath-cfw-installer winepath-pwsh-executable winepath-pwsh-probe-script winepath-pwsh-marker wineboot; do
               path="$logs/${name}.log"
               if [ -f "$path" ]; then
                 echo "--- ${name}.log (tail) ---"

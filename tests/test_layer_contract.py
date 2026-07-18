@@ -103,7 +103,11 @@ class LayerContractTests(unittest.TestCase):
 
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
         self.assertIn("runtime-inputs.json", source)
+        self.assertIn("CFW_COMPILED_INSTALLER", source)
+        self.assertIn("ChoCinstaller-under-test.exe", source)
         self.assertIn("CFW_RUNTIME_INPUTS_SHA256", source)
+        self.assertIn("CFW_INSTALLER_SHA256", source)
+        self.assertIn('"installerSha256"', source)
         self.assertIn("verify_checkout_source choc_install.ps1", source)
         self.assertNotIn("verify_checkout_source winetricks.ps1", source)
 
@@ -143,6 +147,9 @@ class LayerContractTests(unittest.TestCase):
         self.assertLess(workflow.index("pwsh-probe"), workflow.index("installer stages"))
         self.assertIn('head -c 2600', workflow)
         self.assertIn("CFW runtime build failed", workflow)
+        self.assertIn("Compile CFW installer under test", workflow)
+        self.assertIn("installer.c", workflow)
+        self.assertIn("CFW_COMPILED_INSTALLER=/src/compat/ChoCinstaller-under-test.exe", workflow)
         self.assertIn("hashlib.sha256", workflow)
         self.assertIn("GITHUB_SHA", workflow)
         self.assertIn("release already exists", workflow)
