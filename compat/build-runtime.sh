@@ -28,6 +28,16 @@ for output_name in "$artifact_name" "$evidence_name" "$manifest_name"; do
   esac
 done
 
+# The workflow may reuse an output directory across attempts. Remove the prior
+# public diagnostic before any per-run validation can fail, so a new failure is
+# never attributed evidence from an older run.
+if ! [[ ! -L "$output_root" && ! -L "$logs" ]]; then
+  echo "[cfw] output root and logs directory must not be symbolic links" >&2
+  exit 65
+fi
+mkdir -p "$output_root" "$logs"
+rm -f "$logs/prepared-finalizer-diagnostic.log"
+
 [[ -f "$runtime_inputs" ]] || {
   echo "[cfw] runtime inputs file is missing: $runtime_inputs" >&2
   exit 65
@@ -73,6 +83,7 @@ on_error() {
   printf '[cfw] ERROR stage=%s rc=%s\n' "$stage" "$rc" | tee -a "$logs/build-stages.log" >&2
   exit "$rc"
 }
+
 trap on_error ERR
 
 mark_stage() {
@@ -243,12 +254,14 @@ winepath_to_windows() {
   settle_log="$logs/winepath-${label}-settle.log"
   status="$logs/winepath-${label}.status"
   rm -f "$log" "$settle_log" "$status"
+  trap - ERR
   set +e
   timeout --kill-after=10s 60s winepath -w "$host_path" >"$log" 2>&1
   rc="$?"
   timeout --kill-after=10s 60s wineserver -w >"$settle_log" 2>&1
   settle_rc="$?"
   set -e
+  trap on_error ERR
   printf '%s %s\n' "$rc" "$settle_rc" >"$status"
   if [[ "$rc" -ne 0 || "$settle_rc" -ne 0 ]]; then
     printf '[cfw] Wine path conversion failed: label=%s process=%s settle=%s host_path=%s prefix=%s dll_overrides=%s\n' \
@@ -313,12 +326,14 @@ for input_name in chocolatey powershell dotnet mscoree d3d64 d3d32 conemu sevenZ
 done
 
 mark_stage prove-wine-identity
+trap - ERR
 set +e
 timeout --kill-after=10s 60s wine --version >"$logs/wine-version.log" 2>&1
 wine_version_rc="$?"
 timeout --kill-after=10s 60s wineserver -w >"$logs/wine-version-settle.log" 2>&1
 wine_version_settle_rc="$?"
 set -e
+trap on_error ERR
 normalize_log "$logs/wine-version.log"
 CFW_OBSERVED_WINE_VERSION="$(read_single_observed_line wine-version "$logs/wine-version.log")"
 if [[ "$wine_version_rc" -ne 0 || "$wine_version_settle_rc" -ne 0 || "$CFW_OBSERVED_WINE_VERSION" != "$CFW_EXPECTED_WINE_VERSION" ]]; then
@@ -335,12 +350,14 @@ mark_stage initialize-prefix
 export WINEDLLOVERRIDES="mscoree,mshtml="
 rm -rf "$wine_prefix"
 mkdir -p "$wine_prefix"
+trap - ERR
 set +e
 timeout --kill-after=15s 300s wine wineboot --init >"$logs/wineboot.log" 2>&1
 wineboot_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/wineboot.log" 2>&1
 wineboot_settle_rc="$?"
 set -e
+trap on_error ERR
 if [[ "$wineboot_rc" -ne 0 || "$wineboot_settle_rc" -ne 0 || ! -d "$wine_prefix/drive_c" ]]; then
   printf 'Wine prefix initialization failed: process=%s settle=%s\n' "$wineboot_rc" "$wineboot_settle_rc" >&2
   cat "$logs/wineboot.log" >&2 || true
@@ -358,13 +375,14 @@ export CFW_OFFLINE=1
 export CFW_CONTAINER_BUILDER=1
 export CFW_EXTERNAL_POWERSHELL=1
 installer_win="$(winepath_to_windows cfw-installer "$release_dir/ChoCinstaller_0.5c.755.exe")"
+trap - ERR
 set +e
 timeout --kill-after=30s "${CFW_INSTALL_TIMEOUT:-7200s}" wine "$installer_win" /s /q >"$logs/installer.log" 2>&1
 installer_rc="$?"
 timeout --kill-after=15s 300s wineserver -w >>"$logs/installer.log" 2>&1
 installer_settle_rc="$?"
 set -e
-
+trap on_error ERR
 pwsh="$wine_prefix/drive_c/Program Files/PowerShell/7/pwsh.exe"
 choco="$wine_prefix/drive_c/ProgramData/chocolatey/bin/choco.exe"
 
@@ -383,6 +401,7 @@ pwsh_policy="$repo_root/compat/pwsh-policy.reg"
 pwsh_policy_win="$(winepath_to_windows pwsh-policy "$pwsh_policy")"
 pwsh_policy_key='HKCU\Software\Wine\AppDefaults\pwsh.exe\DllOverrides'
 : >"$logs/pwsh-policy.log"
+trap - ERR
 set +e
 timeout --kill-after=10s 60s winecfg /v win10 >>"$logs/pwsh-policy.log" 2>&1
 pwsh_winecfg_rc="$?"
@@ -404,6 +423,7 @@ pwsh_dwmapi_rc="$?"
 grep -Eq 'rpcrt4[[:space:]]+REG_SZ[[:space:]]+native,builtin[[:space:]]*$' "$logs/pwsh-policy.log"
 pwsh_rpcrt4_rc="$?"
 set -e
+trap on_error ERR
 if [[ "$pwsh_winecfg_rc" -ne 0 || "$pwsh_winecfg_settle_rc" -ne 0 || \
       "$pwsh_regedit_rc" -ne 0 || "$pwsh_regedit_settle_rc" -ne 0 || \
       "$pwsh_query_rc" -ne 0 || "$pwsh_query_settle_rc" -ne 0 || \
@@ -451,6 +471,7 @@ pwsh_win="$(winepath_to_windows pwsh-executable "$pwsh")"
 pwsh_launcher=(wineconsole "$pwsh_win")
 pwsh_probe_script_win="$(winepath_to_windows pwsh-probe-script "$pwsh_probe_script")"
 pwsh_marker_win="$(winepath_to_windows pwsh-marker "$pwsh_marker")"
+trap - ERR
 set +e
 timeout --kill-after=15s 300s "${pwsh_launcher[@]}" -NoLogo -NoProfile -NonInteractive \
   -File "$pwsh_probe_script_win" "$pwsh_marker_win" "$CFW_EXPECTED_POWERSHELL_VERSION" \
@@ -467,12 +488,14 @@ pwsh_entry_rc="$?"
 cmp -s "$pwsh_marker_expected" "$pwsh_marker"
 pwsh_version_rc="$?"
 set -e
+trap on_error ERR
 if [[ "$pwsh_rc" -ne 0 || "$pwsh_settle_rc" -ne 0 || "$pwsh_entry_rc" -ne 0 || "$pwsh_version_rc" -ne 0 || ! -s "$pwsh_marker" ]]; then
   if [[ -s "$pwsh_marker" ]]; then marker_status=present; else marker_status=missing; fi
   printf 'PowerShell runtime proof failed: process=%s settle=%s entry=%s version=%s marker=%s path=%s\n' \
     "$pwsh_rc" "$pwsh_settle_rc" "$pwsh_entry_rc" "$pwsh_version_rc" "$marker_status" "$pwsh_win" \
     | tee "$logs/pwsh-proof-summary.log" >&2
   cat "$logs/pwsh-probe.log" >&2 || true
+  trap - ERR
   set +e
   pwsh_host_trace="$probe_dir/pwsh-host-trace.log"
   dotnet_host_trace="$probe_dir/dotnet-host-trace.log"
@@ -501,6 +524,7 @@ if [[ "$pwsh_rc" -ne 0 || "$pwsh_settle_rc" -ne 0 || "$pwsh_entry_rc" -ne 0 || "
   timeout --kill-after=10s 60s wineserver -w >>"$logs/pwsh-failure-trace.log" 2>&1
   trace_settle_rc="$?"
   set -e
+  trap on_error ERR
   printf 'failure-trace process=%s settle=%s\n' "$trace_rc" "$trace_settle_rc" \
     | tee -a "$logs/pwsh-proof-summary.log" >&2
   exit 70
@@ -512,10 +536,12 @@ prepared_finalizer_win="$(winepath_to_windows prepared-finalizer "$prepared_fina
 profile_fragments_win="$(winepath_to_windows profile-fragments "$repo_root/compat/profile.d")"
 prepared_finalizer_marker="$probe_dir/prepared-finalizer.txt"
 prepared_finalizer_marker_win="$(winepath_to_windows prepared-finalizer-marker "$prepared_finalizer_marker")"
+prepared_finalizer_diagnostic="$probe_dir/prepared-finalizer-diagnostic.txt"
 prepared_finalizer_expected="$logs/prepared-finalizer.expected"
-rm -f "$prepared_finalizer_marker"
+rm -f "$prepared_finalizer_marker" "$prepared_finalizer_diagnostic"
 printf '[cfw] stage=prepared-finalizer-script-entry\n[cfw] stage=prepared-finalizer-complete\n' \
   >"$prepared_finalizer_expected"
+trap - ERR
 set +e
 timeout --kill-after=15s 300s "${pwsh_launcher[@]}" -NoLogo -NoProfile -NonInteractive \
   -File "$prepared_finalizer_win" -FragmentSource "$profile_fragments_win" -MarkerPath "$prepared_finalizer_marker_win" \
@@ -523,16 +549,21 @@ timeout --kill-after=15s 300s "${pwsh_launcher[@]}" -NoLogo -NoProfile -NonInter
 prepared_finalizer_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/prepared-finalizer.log" 2>&1
 prepared_finalizer_settle_rc="$?"
+if [[ -s "$prepared_finalizer_diagnostic" ]]; then
+  cp -f "$prepared_finalizer_diagnostic" "$logs/prepared-finalizer-diagnostic.log" || true
+fi
 normalize_log "$logs/prepared-finalizer.log"
 cmp -s "$prepared_finalizer_expected" "$prepared_finalizer_marker"
 prepared_finalizer_evidence_rc="$?"
 set -e
+trap on_error ERR
 if [[ "$prepared_finalizer_rc" -ne 0 || "$prepared_finalizer_settle_rc" -ne 0 || \
       "$prepared_finalizer_evidence_rc" -ne 0 ]]; then
   printf 'Prepared runtime finalizer failed: process=%s settle=%s evidence=%s marker=%s\n' \
     "$prepared_finalizer_rc" "$prepared_finalizer_settle_rc" \
     "$prepared_finalizer_evidence_rc" "$prepared_finalizer_marker" >&2
   cat "$logs/prepared-finalizer.log" >&2 || true
+  cat "$logs/prepared-finalizer-diagnostic.log" >&2 || true
   exit 70
 fi
 
@@ -562,13 +593,16 @@ smoke_feed="$work/smoke-feed"
 build_smoke_package "$smoke_feed"
 smoke_feed_win="$(winepath_to_windows smoke-feed "$smoke_feed")"
 
+trap - ERR
 set +e
 timeout --kill-after=15s 300s wine "$choco_win" feature list --limit-output >"$logs/choco-feature-status.log" 2>&1
 feature_status_command_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/choco-feature-status.log" 2>&1
 feature_status_settle_rc="$?"
 set -e
+trap on_error ERR
 normalize_log "$logs/choco-feature-status.log"
+trap - ERR
 set +e
 grep -Eiq '^powershellHost\|(disabled|false)$' "$logs/choco-feature-status.log"
 feature_status_rc="$?"
@@ -577,8 +611,10 @@ choco_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/choco-version.log" 2>&1
 choco_settle_rc="$?"
 set -e
+trap on_error ERR
 normalize_log "$logs/choco-version.log"
 CFW_OBSERVED_CHOCOLATEY_VERSION="$(read_single_observed_line chocolatey-version "$logs/choco-version.log")"
+trap - ERR
 set +e
 [[ "$CFW_OBSERVED_CHOCOLATEY_VERSION" == "$CFW_EXPECTED_CHOCOLATEY_VERSION" ]]
 choco_version_rc="$?"
@@ -599,6 +635,7 @@ smoke_uninstall_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/choco-smoke-uninstall.log" 2>&1
 smoke_uninstall_settle_rc="$?"
 set -e
+trap on_error ERR
 export CFW_OBSERVED_CHOCOLATEY_VERSION
 
 python3 - "$metadata" \

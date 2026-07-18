@@ -157,6 +157,114 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("[IO.File]::WriteAllText(", finalizer)
         self.assertIn("prepared-finalizer-script-entry`n[cfw] stage=prepared-finalizer-complete`n", finalizer)
 
+    def test_captured_commands_suspend_the_global_err_trap(self) -> None:
+        source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
+        lines = [line.strip() for line in source.splitlines()]
+
+        self.assertEqual(lines.count("trap - ERR"), 11)
+        self.assertEqual(lines.count("set +e"), 11)
+        self.assertEqual(lines.count("set -e"), 11)
+        self.assertEqual(lines.count("trap on_error ERR"), 12)
+        for index, line in enumerate(lines):
+            if line == "set +e":
+                self.assertEqual(lines[index - 1], "trap - ERR")
+            elif line == "set -e":
+                self.assertEqual(lines[index + 1], "trap on_error ERR")
+        test_script = "\n".join((
+            "set -euo pipefail",
+            "on_error() { exit 99; }",
+            "trap on_error ERR",
+            "trap - ERR",
+            "set +e",
+            "false",
+            "captured=$?",
+            "set -e",
+            "trap on_error ERR",
+            "printf 'captured=%s\\n' \"$captured\"",
+            "[[ \"$captured\" -eq 1 ]]",
+        ))
+        result = subprocess.run(
+            ["bash"], input=test_script, text=True, capture_output=True, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "captured=1\n")
+
+    def test_finalizer_persists_failure_diagnostics(self) -> None:
+        source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
+        finalizer = (ROOT / "compat" / "finalize-runtime.ps1").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "build-container-runtime.yml").read_text(encoding="utf-8")
+
+        self.assertIn("prepared-finalizer-diagnostic.txt", finalizer)
+        self.assertIn("function Write-Diagnostic", finalizer)
+        self.assertIn("catch {", finalizer)
+        self.assertIn("finally {", finalizer)
+        self.assertIn("$_.Exception.GetType().FullName", finalizer)
+        self.assertEqual(finalizer.count("[IO.File]::AppendAllText("), 1)
+        self.assertIn('prepared_finalizer_diagnostic="$probe_dir/prepared-finalizer-diagnostic.txt"', source)
+        self.assertIn('rm -f "$logs/prepared-finalizer-diagnostic.log"', source)
+        self.assertLess(
+            source.index('rm -f "$logs/prepared-finalizer-diagnostic.log"'),
+            source.index('[[ -f "$runtime_inputs" ]]'),
+        )
+        self.assertIn('cp -f "$prepared_finalizer_diagnostic" "$logs/prepared-finalizer-diagnostic.log"', source)
+        self.assertIn("prepared-finalizer-diagnostic", workflow)
+        self.assertIn('sudo rm -rf -- "$out"', workflow)
+        self.assertLess(
+            workflow.index('sudo rm -rf -- "$out"'),
+            workflow.index('docker run --rm'),
+        )
+        self.assertIn('[[ ! -L "$output_root" && ! -L "$logs" ]]', source)
+        self.assertIn("No output was attributed to this workflow attempt.", workflow)
+        self.assertIn("Refusing to prepare or upload output without the current workflow-attempt marker.", workflow)
+        self.assertIn("if: always() && steps.diagnostics.outcome == 'success'", workflow)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "reused-output"
+            logs = output / "logs"
+            logs.mkdir(parents=True)
+            stale = logs / "prepared-finalizer-diagnostic.log"
+            stale.write_text("STALE-DIAGNOSTIC-FROM-PRIOR-RUN\n", encoding="utf-8")
+            installer = Path(temporary) / "installer.exe"
+            installer.write_bytes(b"installer fixture")
+            environment = os.environ.copy()
+            environment["CFW_COMPILED_INSTALLER"] = str(installer)
+            for name in (
+                "CFW_SOURCE_REVISION", "CFW_WINE_IMAGE", "CFW_EXPECTED_WINE_VERSION",
+                "SOURCE_DATE_EPOCH",
+            ):
+                environment.pop(name, None)
+            result = subprocess.run(
+                ["bash", str(ROOT / "compat" / "build-runtime.sh"), str(output)],
+                text=True,
+                capture_output=True,
+                env=environment,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("CFW_SOURCE_REVISION must be the exact source commit", result.stderr)
+            self.assertFalse(stale.exists(), result.stderr)
+
+            external = Path(temporary) / "external-logs"
+            external.mkdir()
+            external_stale = external / "prepared-finalizer-diagnostic.log"
+            external_stale.write_text("EXTERNAL-SENTINEL\n", encoding="utf-8")
+            symlinked_output = Path(temporary) / "symlinked-output"
+            symlinked_output.mkdir()
+            (symlinked_output / "logs").symlink_to(external, target_is_directory=True)
+            result = subprocess.run(
+                ["bash", str(ROOT / "compat" / "build-runtime.sh"), str(symlinked_output)],
+                text=True,
+                capture_output=True,
+                env=environment,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("must not be symbolic links", result.stderr)
+            self.assertEqual(
+                external_stale.read_text(encoding="utf-8"),
+                "EXTERNAL-SENTINEL\n",
+            )
+
     def test_runtime_evidence_rejects_noncanonical_persisted_proofs(self) -> None:
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
         anchor = 'path = Path(sys.argv[1])\nvalues = [int(value) for value in sys.argv[2:33]]'

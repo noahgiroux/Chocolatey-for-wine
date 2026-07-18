@@ -4,6 +4,37 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$script:diagnosticPath = $null
+function Write-Diagnostic {
+    param(
+        [Parameter(Mandatory = $true)][string] $Message,
+        [switch] $Reset
+    )
+    if (-not $script:diagnosticPath) { return }
+    try {
+        if ($Reset) {
+            [IO.File]::WriteAllText($script:diagnosticPath, $Message)
+        } else {
+            [IO.File]::AppendAllText($script:diagnosticPath, $Message)
+        }
+    } catch { }
+}
+try {
+    $script:diagnosticPath = Join-Path (Split-Path -Parent $MarkerPath) 'prepared-finalizer-diagnostic.txt'
+    [IO.Directory]::CreateDirectory((Split-Path -Parent $script:diagnosticPath)) | Out-Null
+    Write-Diagnostic -Reset -Message "[cfw] stage=prepared-finalizer-script-entry`n"
+} catch {
+    $script:diagnosticPath = $null
+}
+trap {
+    try {
+        $exceptionType = $_.Exception.GetType().FullName
+        $exceptionMessage = $_.Exception.Message -replace "[`r`n]+", ' '
+        Write-Diagnostic -Message "[cfw] stage=prepared-finalizer-failed type=$exceptionType message=$exceptionMessage`n"
+    } finally {
+        exit 70
+    }
+}
 [Console]::Out.WriteLine('[cfw] stage=prepared-finalizer-script-entry')
 
 $chocolateyRoot = Join-Path $env:ProgramData 'chocolatey'
@@ -12,6 +43,7 @@ $choco = Join-Path $chocolateyBin 'choco.exe'
 if (-not (Test-Path -LiteralPath $choco -PathType Leaf)) {
     throw "canonical Chocolatey executable is missing: $choco"
 }
+Write-Diagnostic -Message "[cfw] stage=canonical-chocolatey-present`n"
 
 [Environment]::SetEnvironmentVariable('ChocolateyInstall', $chocolateyRoot, 'Machine')
 [Environment]::SetEnvironmentVariable('ChocolateyToolsLocation', 'C:\tools', 'Machine')
@@ -44,6 +76,7 @@ foreach ($name in $requiredFragments) {
     }
     Copy-Item -LiteralPath $source -Destination (Join-Path $profileRoot $name) -Force
 }
+Write-Diagnostic -Message "[cfw] stage=profile-fragments-installed`n"
 
 $pwshRoot = $PSHOME
 $profile = Join-Path $pwshRoot 'profile.ps1'
@@ -66,11 +99,13 @@ if (Test-Path -LiteralPath $cfwApplicationProfileRoot -PathType Container) {
 }
 Remove-Variable legacyProfile, cfwProfileRoot, cfwApplicationProfileRoot -ErrorAction SilentlyContinue
 '@ | Set-Content -LiteralPath $profile -Encoding utf8
+Write-Diagnostic -Message "[cfw] stage=profile-loader-installed`n"
 
 & $choco feature disable --name=powershellHost
 if ($LASTEXITCODE -ne 0) {
     throw "failed to disable Chocolatey powershellHost: $LASTEXITCODE"
 }
+Write-Diagnostic -Message "[cfw] stage=chocolatey-powershell-host-disabled`n"
 
 $markerParent = Split-Path -Parent $MarkerPath
 New-Item -ItemType Directory -Force -Path $markerParent | Out-Null
@@ -78,4 +113,5 @@ New-Item -ItemType Directory -Force -Path $markerParent | Out-Null
     $MarkerPath,
     "[cfw] stage=prepared-finalizer-script-entry`n[cfw] stage=prepared-finalizer-complete`n"
 )
+Write-Diagnostic -Message "[cfw] stage=prepared-finalizer-complete`n"
 [Console]::Out.WriteLine('[cfw] stage=prepared-finalizer-complete')
