@@ -216,6 +216,7 @@ class LayerContractTests(unittest.TestCase):
     def test_runtime_builder_has_strict_proofs(self) -> None:
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
         inputs = json.loads((ROOT / "compat" / "runtime-inputs.json").read_text(encoding="utf-8"))
+        contract = json.loads((ROOT / "compat" / "contract.json").read_text(encoding="utf-8"))
 
         self.assertIn("winepath_to_windows", source)
         self.assertIn("winepath-${label}.log", source)
@@ -291,7 +292,16 @@ class LayerContractTests(unittest.TestCase):
         self.assertNotIn("feature disable --name=powershellHost", source)
         self.assertNotIn("powershellHostFeatures", finalizer)
         self.assertIn('mark_stage apply-chocolatey-policy', source)
-        self.assertIn('choco_launcher=(wine "$choco_win")', source)
+        self.assertIn('choco_query_launcher=(wine "$choco_win")', source)
+        self.assertIn('choco_package_launcher=(wineconsole "$choco_win")', source)
+        self.assertEqual(
+            contract["artifact"]["interfaces"]["chocolatey"]["queryLauncher"],
+            "wine",
+        )
+        self.assertEqual(
+            contract["artifact"]["interfaces"]["chocolatey"]["packageLauncher"],
+            "wineconsole",
+        )
         self.assertIn("choco_win='C:\\ProgramData\\chocolatey\\choco.exe'", source)
         self.assertNotIn("choco_win='C:\\ProgramData\\chocolatey\\bin\\choco.exe'", source)
         self.assertIn(
@@ -345,6 +355,8 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("synchro-x86.txt", source)
         self.assertIn("CFW_PROFILE_COMPOSITION", source)
         self.assertIn("--use-system-powershell", source)
+        self.assertIn('"${choco_package_launcher[@]}" install', source)
+        self.assertIn('"${choco_package_launcher[@]}" uninstall', source)
         self.assertIn("cfw-runtime-prefix", source)
         self.assertIn("cfw.runtime-build/v2", source)
         self.assertIn('contract = json.loads(contract_path.read_text', source)
