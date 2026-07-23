@@ -299,6 +299,16 @@ class LayerContractTests(unittest.TestCase):
             source,
         )
         self.assertIn('[[ -s "$pwsh" && -s "$choco" && -s "$choco_shim" ]]', source)
+        self.assertIn("mark_stage install-chocolatey-type-dependencies", source)
+        self.assertIn("$(input_value windowsPowerShell filename)", source)
+        self.assertIn("'System.Management.Automation.dll'", source)
+        self.assertIn("chocolatey-type-dependency-inventory.log", source)
+        self.assertIn('windows_powershell_assembly_count" -lt 8', source)
+        self.assertIn('test -s "$chocolatey_root/System.Management.Automation.dll"', source)
+        self.assertLess(
+            source.index("mark_stage install-chocolatey-type-dependencies"),
+            source.index("mark_stage apply-chocolatey-policy"),
+        )
         self.assertNotIn('set-chocolatey-policy.py" apply', source)
         self.assertIn('set-chocolatey-policy.py" seed', source)
         self.assertIn('chocolatey_config_template="$repo_root/compat/chocolatey.config"', source)
