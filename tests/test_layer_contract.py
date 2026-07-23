@@ -752,6 +752,8 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn('CFW_OBSERVED_CHOCOLATEY_VERSION="$(read_single_observed_line', source)
         self.assertIn('choco_version_output_rc="$?"', source)
         self.assertIn("choco-version-diagnostic.log", source)
+        self.assertIn("choco-version-direct.log", source)
+        self.assertIn('wine "$choco_win" --version', source)
         self.assertIn("Chocolatey probe return codes", source)
         self.assertIn('[[ "$CFW_OBSERVED_CHOCOLATEY_VERSION" == "$CFW_EXPECTED_CHOCOLATEY_VERSION" ]]', source)
         self.assertNotIn('grep -Fqx "$CFW_EXPECTED_CHOCOLATEY_VERSION"', source)
