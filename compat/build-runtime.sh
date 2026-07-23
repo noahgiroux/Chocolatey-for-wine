@@ -599,8 +599,10 @@ fi
 # Chocolatey's bin\choco.exe is a shimgen launcher for ..\choco.exe. That
 # compatibility shim cannot reliably create its managed child under Wine, so
 # the CFW execution contract uses the real Chocolatey console executable.
+# Launch Chocolatey directly: wineconsole is required for the Synchro/pwsh
+# surfaces, but it suppresses redirected Chocolatey stdout in container builds.
 choco_win='C:\ProgramData\chocolatey\choco.exe'
-choco_launcher=(wineconsole "$choco_win")
+choco_launcher=(wine "$choco_win")
 
 wrapper64="$wine_prefix/drive_c/windows/system32/WindowsPowerShell/v1.0/powershell.exe"
 wrapper32="$wine_prefix/drive_c/windows/syswow64/WindowsPowerShell/v1.0/powershell.exe"
