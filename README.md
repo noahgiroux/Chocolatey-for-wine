@@ -28,6 +28,8 @@ The machine-readable contract is [`compat/contract.json`](compat/contract.json).
 inputs. It requires all of the following before producing an artifact:
 
 - the full CFW installer exits successfully and Wine settles;
+- the native container finalizer selects Microsoft .NET's `mscoree.dll`, and
+  the resulting Wine DLL override is verified before Chocolatey starts;
 - the source-controlled pre-PowerShell Wine policy, including CFW's maintained `pwsh.exe` RPC override, is applied and independently evidenced;
 - Windows `pwsh.exe` runs through Wine's X-backed user console, emits script
   entry, reports the exact locked version, and creates matching filesystem
