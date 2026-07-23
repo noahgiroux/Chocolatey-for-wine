@@ -687,11 +687,20 @@ if [[ "$feature_status_command_rc" -ne 0 || "$feature_status_settle_rc" -ne 0 ||
   printf '[cfw] Chocolatey probe return codes: feature=%s featureSettle=%s featureStatus=%s version=%s versionSettle=%s versionProof=%s\n' \
     "$feature_status_command_rc" "$feature_status_settle_rc" "$feature_status_rc" \
     "$choco_rc" "$choco_settle_rc" "$choco_version_rc" >&2
+  WINEDEBUG=-all timeout --kill-after=15s 90s \
+    wine "$choco_win" --version >"$logs/choco-version-direct.log" 2>&1
+  choco_direct_rc="$?"
+  timeout --kill-after=10s 120s wineserver -w >>"$logs/choco-version-direct.log" 2>&1
+  choco_direct_settle_rc="$?"
+  normalize_log "$logs/choco-version-direct.log"
+  printf '[cfw] Chocolatey direct diagnostic return codes: process=%s settle=%s\n' \
+    "$choco_direct_rc" "$choco_direct_settle_rc" >&2
   WINEDEBUG=+process,+loaddll,+seh timeout --kill-after=15s 90s \
     "${choco_launcher[@]}" --version >"$logs/choco-version-diagnostic.log" 2>&1
   choco_diagnostic_rc="$?"
   timeout --kill-after=10s 120s wineserver -w >>"$logs/choco-version-diagnostic.log" 2>&1
   choco_diagnostic_settle_rc="$?"
+  normalize_log "$logs/choco-version-diagnostic.log"
   printf '[cfw] Chocolatey diagnostic return codes: process=%s settle=%s\n' \
     "$choco_diagnostic_rc" "$choco_diagnostic_settle_rc" >&2
 fi
