@@ -82,7 +82,7 @@
   },
   "rejected": {
     "chocolatey-in-process-powershell": {
-      "reason": "Chocolatey 2.6.0 fails with ReflectionTypeLoadException even with the complete legacy Windows PowerShell assembly set"
+      "reason": "package script execution is delegated to the artifact's external Synchro surface; legacy assemblies beside choco.exe satisfy CLR type discovery only"
     },
     "consumer-built-wmf-runtime": {
       "reason": "duplicates CFW-specific servicing, CLR, GAC, registry, and wrapper knowledge in every consumer build"

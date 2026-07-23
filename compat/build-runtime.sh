@@ -613,6 +613,41 @@ cp -f "$synchro_cache/powershell64.exe" "$wrapper64"
 cp -f "$synchro_cache/powershell32.exe" "$wrapper32"
 test -s "$wrapper64" && test -s "$wrapper32"
 
+# Chocolatey keeps its in-process PowerShell host disabled, but several types
+# in choco.exe still reference the legacy System.Management.Automation
+# assembly. CLR type discovery resolves those references before Chocolatey can
+# parse any command. Supply the verified legacy metadata dependencies beside
+# choco.exe while continuing to execute package scripts through Synchro.
+mark_stage install-chocolatey-type-dependencies
+chocolatey_root="$wine_prefix/drive_c/ProgramData/chocolatey"
+windows_powershell_package="$payload_cache/$(input_value windowsPowerShell filename)"
+windows_powershell_stage="$work/windows-powershell-type-dependencies"
+rm -rf -- "$windows_powershell_stage"
+mkdir -p "$windows_powershell_stage"
+7z e -y -aoa -ssc- -r \
+  -x'!*resources.dll' \
+  "$windows_powershell_package" \
+  'Microsoft.PowerShell*.dll' \
+  'Microsoft.WSMan*.dll' \
+  'System.Management.Automation.dll' \
+  "-o$windows_powershell_stage" \
+  >"$logs/chocolatey-type-dependencies.log" 2>&1
+find "$windows_powershell_stage" -maxdepth 1 -type f -iname '*.dll' -printf '%f\n' \
+  | sort -f >"$logs/chocolatey-type-dependency-inventory.log"
+windows_powershell_assembly_count="$(
+  wc -l <"$logs/chocolatey-type-dependency-inventory.log" | tr -d '[:space:]'
+)"
+if [[ "$windows_powershell_assembly_count" -lt 8 ]]; then
+  printf '[cfw] incomplete Chocolatey type dependency set: count=%s\n' \
+    "$windows_powershell_assembly_count" >&2
+  cat "$logs/chocolatey-type-dependency-inventory.log" >&2 || true
+  exit 69
+fi
+find "$windows_powershell_stage" -maxdepth 1 -type f -iname '*.dll' \
+  -exec cp -f -t "$chocolatey_root" {} +
+rm -rf -- "$windows_powershell_stage"
+test -s "$chocolatey_root/System.Management.Automation.dll"
+
 export ChocolateyInstall='C:\ProgramData\chocolatey'
 export ChocolateyToolsLocation='C:\tools'
 

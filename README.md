@@ -82,12 +82,13 @@ CFW’s ordered fragments. Consumers may add application-specific fragments only
 under `C:\ProgramData\Chocolatey-for-wine\application-profile.d`; they must not
 replace CFW’s profile loader, fragments, or Synchro wrappers.
 
-## Rejected package-host shortcut
+## Package-host boundary
 
-Chocolatey 2.6.0 was tested with its in-process PowerShell host enabled and the
-complete legacy Windows PowerShell assembly set copied beside `choco.exe`. It
-still failed with `ReflectionTypeLoadException`. That path is not a supported
-runtime contract.
+Chocolatey 2.6.0 references legacy Windows PowerShell types while discovering
+its own command and rule types, even when its in-process PowerShell host is
+disabled. CFW therefore supplies the locked legacy type-dependency assembly set
+beside `choco.exe`. This satisfies CLR type discovery without making the
+in-process host part of the runtime contract.
 
 Chocolatey packages execute through the external Windows-compatible PowerShell
 surface included in the prepared runtime. Synchro is part of that artifact rather
