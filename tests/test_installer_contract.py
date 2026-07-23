@@ -24,6 +24,8 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
 
     def test_child_process_exit_codes_are_checked(self):
         self.assertIn("run_process", INSTALLER)
+        self.assertIn("run_process_bounded", INSTALLER)
+        self.assertIn("TerminateProcess", INSTALLER)
         self.assertIn("GetExitCodeProcess", INSTALLER)
         self.assertIn("ERROR_SUCCESS_REBOOT_REQUIRED", INSTALLER)
 
@@ -68,6 +70,8 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
         self.assertIn('L"mscoree"', native)
         self.assertIn('L"native"', native)
         self.assertIn('L"wusa.exe \\""', native)
+        self.assertIn("run_process_bounded(NULL, mscoree_command, 0, 180000)", native)
+        self.assertIn("result != ERROR_TIMEOUT", native)
         self.assertIn('L"%SystemRoot%\\\\System32\\\\mscoree.dll"', native)
         self.assertIn('L"%SystemRoot%\\\\SysWOW64\\\\mscoree.dll"', native)
         self.assertLess(native.index("mscoree-install-start"), native.index('L"mscoree"'))
