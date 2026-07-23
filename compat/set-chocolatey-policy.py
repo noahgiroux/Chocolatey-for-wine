@@ -42,6 +42,17 @@ def _assert_directory(path: Path) -> None:
         raise PolicyError(f"directory must be real and non-symlinked: {path}")
 
 
+def _assert_optional_directory(path: Path) -> None:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise PolicyError(f"cannot inspect directory: {path}: {exc}") from exc
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        raise PolicyError(f"directory must be absent or real and non-symlinked: {path}")
+
+
 def _assert_no_symlink_components(path: Path) -> None:
     current = Path(path.anchor)
     for component in path.parts[1:]:
@@ -126,6 +137,51 @@ def verify_status(status_path: Path) -> None:
         )
 
 
+def seed_policy(template_path: Path, config_path: Path) -> None:
+    template_path = template_path.absolute()
+    config_path = config_path.absolute()
+    chocolatey_root = config_path.parent.parent
+    parent = config_path.parent
+
+    _assert_no_symlink_components(template_path)
+    template_descriptor, _ = _open_regular_nofollow(template_path)
+    with os.fdopen(template_descriptor, "rb") as stream:
+        template = stream.read()
+    try:
+        root = ET.fromstring(template)
+    except ET.ParseError as exc:
+        raise PolicyError(f"malformed Chocolatey config template: {exc}") from exc
+    if root.tag != "chocolatey":
+        raise PolicyError(f"unexpected Chocolatey config template root: {root.tag}")
+    feature = _feature(root)
+    if feature.get("enabled") != "false" or feature.get("setExplicitly") != "true":
+        raise PolicyError("Chocolatey config template does not disable powershellHost explicitly")
+
+    _assert_no_symlink_components(chocolatey_root)
+    _assert_directory(chocolatey_root)
+    _assert_optional_directory(parent)
+    parent.mkdir(mode=0o755, exist_ok=True)
+    _assert_directory(parent)
+    _assert_optional_regular(config_path)
+    if config_path.exists():
+        apply_policy(config_path)
+        return
+
+    _write_atomic(config_path, template)
+    verify_descriptor, _ = _open_regular_nofollow(config_path)
+    with os.fdopen(verify_descriptor, "rb") as stream:
+        verified_root = ET.fromstring(stream.read())
+    verified = _feature(verified_root)
+    if verified.get("enabled") != "false" or verified.get("setExplicitly") != "true":
+        raise PolicyError("seeded Chocolatey powershellHost policy is not canonical")
+
+    directory_descriptor = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(directory_descriptor)
+    finally:
+        os.close(directory_descriptor)
+
+
 def apply_policy(config_path: Path) -> None:
     config_path = config_path.absolute()
     parent = config_path.parent
@@ -174,12 +230,17 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     apply_parser = subparsers.add_parser("apply")
     apply_parser.add_argument("config", type=Path)
+    seed_parser = subparsers.add_parser("seed")
+    seed_parser.add_argument("template", type=Path)
+    seed_parser.add_argument("config", type=Path)
     verify_parser = subparsers.add_parser("verify-status")
     verify_parser.add_argument("status", type=Path)
     args = parser.parse_args()
     try:
         if args.command == "apply":
             apply_policy(args.config)
+        elif args.command == "seed":
+            seed_policy(args.template, args.config)
         else:
             verify_status(args.status)
     except (OSError, PolicyError) as exc:
