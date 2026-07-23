@@ -202,7 +202,7 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("synchroX64", contract["build"]["requiredProofs"])
         self.assertEqual(
             contract["artifact"]["interfaces"]["chocolatey"]["prefixRelativePath"],
-            "drive_c/ProgramData/chocolatey/bin/choco.exe",
+            "drive_c/ProgramData/chocolatey/choco.exe",
         )
         self.assertEqual(
             contract["artifact"]["interfaces"]["environment"],
@@ -282,6 +282,13 @@ class LayerContractTests(unittest.TestCase):
         self.assertNotIn("powershellHostFeatures", finalizer)
         self.assertIn('mark_stage apply-chocolatey-policy', source)
         self.assertIn('choco_launcher=(wineconsole "$choco_win")', source)
+        self.assertIn("choco_win='C:\\ProgramData\\chocolatey\\choco.exe'", source)
+        self.assertNotIn("choco_win='C:\\ProgramData\\chocolatey\\bin\\choco.exe'", source)
+        self.assertIn(
+            'choco_shim="$wine_prefix/drive_c/ProgramData/chocolatey/bin/choco.exe"',
+            source,
+        )
+        self.assertIn('[[ -s "$pwsh" && -s "$choco" && -s "$choco_shim" ]]', source)
         self.assertNotIn('set-chocolatey-policy.py" apply', source)
         self.assertIn('set-chocolatey-policy.py" seed', source)
         self.assertIn('chocolatey_config_template="$repo_root/compat/chocolatey.config"', source)
@@ -725,6 +732,9 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn('CFW_OBSERVED_WINE_VERSION="$(read_single_observed_line', source)
         self.assertIn('CFW_OBSERVED_CHOCOLATEY_VERSION=', source)
         self.assertIn('CFW_OBSERVED_CHOCOLATEY_VERSION="$(read_single_observed_line', source)
+        self.assertIn('choco_version_output_rc="$?"', source)
+        self.assertIn("choco-version-diagnostic.log", source)
+        self.assertIn("Chocolatey probe return codes", source)
         self.assertIn('[[ "$CFW_OBSERVED_CHOCOLATEY_VERSION" == "$CFW_EXPECTED_CHOCOLATEY_VERSION" ]]', source)
         self.assertNotIn('grep -Fqx "$CFW_EXPECTED_CHOCOLATEY_VERSION"', source)
         self.assertIn('"chocolatey": os.environ["CFW_OBSERVED_CHOCOLATEY_VERSION"]', source)
