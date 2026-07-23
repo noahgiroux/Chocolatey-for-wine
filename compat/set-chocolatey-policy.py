@@ -123,14 +123,15 @@ def _assert_same_inode(path: Path, expected: os.stat_result) -> None:
 def verify_status(status_path: Path) -> None:
     lines = status_path.read_text(encoding="utf-8").replace("\r", "").splitlines()
     observations = [
-        line.strip().casefold()
+        tuple(part.strip().casefold() for part in line.split("|"))
         for line in lines
         if line.partition("|")[0].strip().casefold() == "powershellhost"
     ]
-    if len(observations) != 1 or observations[0] not in {
-        "powershellhost|disabled",
-        "powershellhost|false",
-    }:
+    if (
+        len(observations) != 1
+        or len(observations[0]) < 2
+        or observations[0][1] not in {"disabled", "false"}
+    ):
         raise PolicyError(
             "expected exactly one disabled Chocolatey powershellHost observation, "
             f"found {observations}"

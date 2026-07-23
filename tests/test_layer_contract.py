@@ -593,6 +593,12 @@ class LayerContractTests(unittest.TestCase):
 
         self.assertEqual(verify("powershellHost|disabled\r\n").returncode, 0)
         self.assertEqual(verify("PowershellHost|false\n").returncode, 0)
+        self.assertEqual(
+            verify(
+                "powershellHost|Disabled|Use Chocolatey's built-in PowerShell host.\r\n"
+            ).returncode,
+            0,
+        )
         for payload in (
             "",
             "powershellHost|enabled\n",
