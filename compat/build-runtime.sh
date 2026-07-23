@@ -646,7 +646,11 @@ fi
 find "$windows_powershell_stage" -maxdepth 1 -type f -iname '*.dll' \
   -exec cp -f -t "$chocolatey_root" {} +
 rm -rf -- "$windows_powershell_stage"
-test -s "$chocolatey_root/System.Management.Automation.dll"
+system_management_automation="$(
+  find "$chocolatey_root" -maxdepth 1 -type f \
+    -iname 'System.Management.Automation.dll' -print -quit
+)"
+test -n "$system_management_automation" && test -s "$system_management_automation"
 
 export ChocolateyInstall='C:\ProgramData\chocolatey'
 export ChocolateyToolsLocation='C:\tools'

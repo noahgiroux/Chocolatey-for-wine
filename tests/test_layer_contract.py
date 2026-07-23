@@ -304,7 +304,9 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("'System.Management.Automation.dll'", source)
         self.assertIn("chocolatey-type-dependency-inventory.log", source)
         self.assertIn('windows_powershell_assembly_count" -lt 8', source)
-        self.assertIn('test -s "$chocolatey_root/System.Management.Automation.dll"', source)
+        self.assertIn("-iname 'System.Management.Automation.dll' -print -quit", source)
+        self.assertIn('test -n "$system_management_automation"', source)
+        self.assertIn('test -s "$system_management_automation"', source)
         self.assertLess(
             source.index("mark_stage install-chocolatey-type-dependencies"),
             source.index("mark_stage apply-chocolatey-policy"),
