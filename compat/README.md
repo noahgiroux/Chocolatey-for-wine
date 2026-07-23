@@ -24,6 +24,8 @@ The callable Chocolatey interface is
 `C:\ProgramData\chocolatey\bin\choco.exe` shim remains present for layout
 compatibility, but deterministic Wine consumers must call the real root
 executable because the shimgen child-process hop is not reliable under Wine.
+Release manifests expose this root executable as the authoritative consumer
+interface.
 
 A consumer owns only:
 
