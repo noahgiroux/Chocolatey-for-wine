@@ -109,7 +109,7 @@ static DWORD native_finalize_chocolatey(void) {
     wchar_t machine_path[4096] = L"";
     wchar_t process_path[4096] = L"";
     DWORD expanded, result, attributes, path_bytes = sizeof(machine_path), path_type = 0;
-    HKEY environment;
+    HKEY environment, dll_overrides;
 
     log_stage("[cfw] stage=native-finalizer-start\n");
     expanded = ExpandEnvironmentStringsW(L"%ProgramData%\\tools\\chocolateyInstall", raw_root, MAX_PATH);
@@ -244,6 +244,38 @@ static DWORD native_finalize_chocolatey(void) {
         return ERROR_INSUFFICIENT_BUFFER;
     if(!SetEnvironmentVariableW(L"Path", process_path))
         return GetLastError();
+
+    /*
+     * The interactive PowerShell finalizer normally installs this override.
+     * Container builds intentionally bypass that script, but Microsoft .NET
+     * still requires Wine to load the native mscoree.dll. Without it, managed
+     * Chocolatey entry points fall back to Wine Mono and exit before Main.
+     */
+    result = RegCreateKeyExW(
+        HKEY_CURRENT_USER,
+        L"Software\\Wine\\DllOverrides",
+        0,
+        NULL,
+        REG_OPTION_NON_VOLATILE,
+        KEY_SET_VALUE,
+        NULL,
+        &dll_overrides,
+        NULL
+    );
+    if(result != ERROR_SUCCESS) return result;
+    {
+        const WCHAR native_override[] = L"native";
+        result = RegSetValueExW(
+            dll_overrides,
+            L"mscoree",
+            0,
+            REG_SZ,
+            (BYTE*)native_override,
+            sizeof(native_override)
+        );
+    }
+    RegCloseKey(dll_overrides);
+    if(result != ERROR_SUCCESS) return result;
 
     log_stage("[cfw] stage=native-finalizer-complete\n");
     return ERROR_SUCCESS;

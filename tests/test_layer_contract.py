@@ -264,6 +264,13 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn('WINEDLLOVERRIDES="mscoree,mshtml="', source)
         self.assertIn('wine wineboot --init', source)
         self.assertIn('export WINEDLLOVERRIDES=""', source)
+        self.assertIn("mark_stage prove-clr-policy", source)
+        self.assertIn("clr-policy.log", source)
+        self.assertIn("wine reg query \"$clr_policy_key\" /v mscoree", source)
+        self.assertIn(
+            "mscoree[[:space:]]+REG_SZ[[:space:]]+native",
+            source,
+        )
         self.assertLess(
             source.index('WINEDLLOVERRIDES="mscoree,mshtml="'),
             source.index('wine wineboot --init'),
@@ -363,10 +370,10 @@ class LayerContractTests(unittest.TestCase):
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
         lines = [line.strip() for line in source.splitlines()]
 
-        self.assertEqual(lines.count("trap - ERR"), 12)
-        self.assertEqual(lines.count("set +e"), 12)
-        self.assertEqual(lines.count("set -e"), 12)
-        self.assertEqual(lines.count("trap on_error ERR"), 13)
+        self.assertEqual(lines.count("trap - ERR"), 13)
+        self.assertEqual(lines.count("set +e"), 13)
+        self.assertEqual(lines.count("set -e"), 13)
+        self.assertEqual(lines.count("trap on_error ERR"), 14)
         for index, line in enumerate(lines):
             if line == "set +e":
                 self.assertEqual(lines[index - 1], "trap - ERR")
@@ -695,8 +702,9 @@ class LayerContractTests(unittest.TestCase):
         self.assertLess(source.index("winecfg /v win10"), source.index('pwsh_winecfg_settle_rc="$?"'))
         self.assertLess(source.index('pwsh_winecfg_settle_rc="$?"'), source.index('wine regedit /S'))
         self.assertLess(source.index('wine regedit /S'), source.index('pwsh_regedit_settle_rc="$?"'))
-        self.assertLess(source.index('pwsh_regedit_settle_rc="$?"'), source.index('wine reg query'))
-        self.assertLess(source.index('wine reg query'), source.index('pwsh_query_settle_rc="$?"'))
+        pwsh_query = 'wine reg query "$pwsh_policy_key"'
+        self.assertLess(source.index('pwsh_regedit_settle_rc="$?"'), source.index(pwsh_query))
+        self.assertLess(source.index(pwsh_query), source.index('pwsh_query_settle_rc="$?"'))
 
     def test_contract_is_authoritative_for_wine_matrix_and_builder_identity(self) -> None:
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
