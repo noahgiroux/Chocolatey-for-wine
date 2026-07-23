@@ -885,10 +885,15 @@ class LayerContractTests(unittest.TestCase):
                 )
             self.assertEqual(archives[0].read_bytes(), archives[1].read_bytes())
             with tarfile.open(archives[0], "r:gz") as archive:
+                members = {member.name: member for member in archive.getmembers()}
+                self.assertIn("./dosdevices", members)
+                self.assertIn("./dosdevices/c:", members)
+                self.assertTrue(members["./dosdevices/c:"].issym())
+                self.assertEqual(members["./dosdevices/c:"].linkname, "../drive_c")
                 self.assertFalse(
                     any(
-                        member.name == "./dosdevices"
-                        or member.name.startswith("./dosdevices/")
+                        member.name.startswith("./dosdevices/")
+                        and member.name != "./dosdevices/c:"
                         for member in archive.getmembers()
                     )
                 )
