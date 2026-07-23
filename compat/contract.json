@@ -1,51 +1,93 @@
 {
-  "schemaVersion": "cfw.compatibility-contract/v1",
+  "schemaVersion": "cfw.compatibility-contract/v3",
   "name": "chocolatey-for-wine",
-  "mode": "additive-compatibility-pack",
-  "requires": {
-    "powershell.engine": {
-      "provider": "pwsh",
-      "version": ">=7.4"
-    },
-    "powershell.winps-shim": {
-      "provider": "synchro/powershell-wrapper-for-wine",
-      "version": "v4.2.0"
+  "mode": "prepared-prefix-runtime",
+  "build": {
+    "script": "build-runtime.sh",
+    "inputs": "runtime-inputs.json",
+    "wineCandidates": [
+      "11.0"
+    ],
+    "freshWin64Prefix": true,
+    "requiredProofs": [
+      "wineIdentity",
+      "installer",
+      "prePwshPolicy",
+      "pathConversions",
+      "pwsh",
+      "preparedFinalizer",
+      "featurePolicy",
+      "chocolatey",
+      "synchroX64",
+      "synchroX86",
+      "chocolateyLifecycle"
+    ]
+  },
+  "artifact": {
+    "kind": "prepared-wine-prefix",
+    "archive": "cfw-runtime-prefix.tar.gz",
+    "evidence": "runtime.json",
+    "manifest": "cfw-runtime-manifest.json",
+    "seedSemantics": "replace-fresh-prefix",
+    "mustPrecedeApplicationModules": true,
+    "runtimeCompatibility": "declared-in-evidence",
+    "interfaces": {
+      "chocolatey": {
+        "windowsPath": "C:\\ProgramData\\chocolatey\\choco.exe",
+        "prefixRelativePath": "drive_c/ProgramData/chocolatey/choco.exe",
+        "queryLauncher": "wine",
+        "packageLauncher": "wineconsole"
+      },
+      "environment": {
+        "WINEDLLOVERRIDES": ""
+      }
     }
   },
   "provides": {
+    "package-manager": "chocolatey-2.6.0",
+    "package-execution-host": "external-windows-powershell",
+    "windows-powershell-shim": "synchro-v4.2.0",
+    "dotnet-runtime": "cfw-dotnet48",
     "wine.compatibility-pack": "chocolatey-for-wine",
-    "package-manager.bootstrap": "chocolatey"
+    "prefix-foundation": "cfw-chocolatey-runtime"
   },
   "contributes": {
     "powershell.profile-fragments": [
+      "profile.d/10-runtime-contract.ps1",
       "profile.d/20-chocolatey.ps1",
       "profile.d/30-cfw-winetricks.ps1",
       "profile.d/40-cfw-command-adapters.ps1"
     ]
   },
-  "tools": {
-    "containerFinalizer": {
-      "source": "container-finalizer.c",
-      "input": "%ProgramData%\\tools\\chocolateyInstall",
-      "output": "%ProgramData%\\chocolatey",
-      "requiredEnvironment": [
-        "CFW_CONTAINER_BUILDER",
-        "CFW_OFFLINE",
-        "CFW_EXTERNAL_POWERSHELL"
-      ]
-    }
-  },
   "ownership": {
-    "powershellEngine": "external",
-    "windowsPowerShellShim": "synchro",
-    "profileLoader": "orchestrator",
+    "dotnetAndClrCompatibility": "cfw",
+    "powershellRuntime": "cfw-runtime-artifact",
+    "windowsPowerShellShim": "cfw-runtime-artifact",
+    "profileLoader": "cfw-runtime-artifact",
     "chocolateyBootstrap": "cfw",
-    "wineCompatibilityFragments": "cfw"
+    "packageExecutionHost": "cfw-runtime-artifact",
+    "wineCompatibilityFragments": "cfw",
+    "artifactAcquisitionAndVerification": "consumer",
+    "recipeOrchestration": "consumer"
   },
   "constraints": {
-    "overwritePowerShellProfile": false,
-    "installCompetingPowerShellShim": false,
-    "containerConsumersMustVerifyInputs": true,
+    "consumerMustNotReconstructWmfOrGac": true,
+    "consumerMustNotInstallCfwClrPayloads": true,
+    "consumerMustNotInstallSynchroForChocolatey": true,
+    "consumerMustSeedArtifactBeforeOtherModules": true,
+    "consumerMustVerifyArchiveDigest": true,
+    "consumerMustVerifyRuntimeEvidence": true,
+    "consumerMustVerifyRuntimeManifest": true,
+    "consumerMustNotReplaceCfwProfileLoader": true,
+    "chocolateyInProcessPowerShellHost": false,
     "desktopInstallerMayRetainLegacyBehavior": true
+  },
+  "rejected": {
+    "chocolatey-in-process-powershell": {
+      "reason": "package script execution is delegated to the artifact's external Synchro surface; legacy assemblies beside choco.exe satisfy CLR type discovery only"
+    },
+    "consumer-built-wmf-runtime": {
+      "reason": "duplicates CFW-specific servicing, CLR, GAC, registry, and wrapper knowledge in every consumer build"
+    }
   }
 }
