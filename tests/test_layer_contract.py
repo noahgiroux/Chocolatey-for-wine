@@ -291,7 +291,7 @@ class LayerContractTests(unittest.TestCase):
         self.assertNotIn("feature disable --name=powershellHost", source)
         self.assertNotIn("powershellHostFeatures", finalizer)
         self.assertIn('mark_stage apply-chocolatey-policy', source)
-        self.assertIn('choco_launcher=(wineconsole "$choco_win")', source)
+        self.assertIn('choco_launcher=(wine "$choco_win")', source)
         self.assertIn("choco_win='C:\\ProgramData\\chocolatey\\choco.exe'", source)
         self.assertNotIn("choco_win='C:\\ProgramData\\chocolatey\\bin\\choco.exe'", source)
         self.assertIn(
