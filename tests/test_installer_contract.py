@@ -38,7 +38,7 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
         pscore = INSTALLER[INSTALLER.index("DWORD WINAPI pscore_install") : INSTALLER.index("DWORD WINAPI cdrive_install")]
         self.assertIn('_wgetenv(L"CFW_CONTAINER_BUILDER")', pscore)
         self.assertIn('_wgetenv(L"CFW_OFFLINE")', pscore)
-        self.assertIn("native_finalize_chocolatey()", pscore)
+        self.assertIn("native_finalize_chocolatey(p)", pscore)
         self.assertIn("pscore_install(&p)", MAIN)
         self.assertLess(MAIN.index("WaitForMultipleObjects"), MAIN.index("pscore_install(&p)"))
 
@@ -67,6 +67,14 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
         self.assertIn('L"Software\\\\Wine\\\\DllOverrides"', native)
         self.assertIn('L"mscoree"', native)
         self.assertIn('L"native"', native)
+        self.assertIn('L"wusa.exe \\""', native)
+        self.assertIn('L"%SystemRoot%\\\\System32\\\\mscoree.dll"', native)
+        self.assertIn('L"%SystemRoot%\\\\SysWOW64\\\\mscoree.dll"', native)
+        self.assertLess(native.index("mscoree-install-start"), native.index('L"mscoree"'))
+        self.assertLess(
+            native.index("mscoree-install-complete"),
+            native.index('L"Software\\\\Wine\\\\DllOverrides"'),
+        )
         self.assertNotIn("configure_container_pwsh_policy", INSTALLER)
         self.assertNotIn('L"rpcrt4"', INSTALLER)
 
@@ -78,6 +86,8 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
             "cdrive-start",
             "prerequisites-complete",
             "native-finalizer-start",
+            "mscoree-install-start",
+            "mscoree-install-complete",
             "native-finalizer-complete",
             "powershell-start",
             "finalizer-start",

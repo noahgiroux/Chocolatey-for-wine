@@ -98,7 +98,7 @@ static DWORD validate_canonical_choco(void) {
         : ERROR_SUCCESS;
 }
 
-static DWORD native_finalize_chocolatey(void) {
+static DWORD native_finalize_chocolatey(struct paths *p) {
     wchar_t raw_root[MAX_PATH] = L"";
     wchar_t raw_choco[MAX_PATH] = L"";
     wchar_t canonical_root[MAX_PATH] = L"";
@@ -108,10 +108,63 @@ static DWORD native_finalize_chocolatey(void) {
     wchar_t staged_choco[MAX_PATH] = L"";
     wchar_t machine_path[4096] = L"";
     wchar_t process_path[4096] = L"";
+    wchar_t mscoree_msu[MAX_PATH] = L"";
+    wchar_t mscoree_command[MAX_PATH * 2] = L"";
+    wchar_t system_mscoree[MAX_PATH] = L"";
+    wchar_t syswow64_mscoree[MAX_PATH] = L"";
     DWORD expanded, result, attributes, path_bytes = sizeof(machine_path), path_type = 0;
     HKEY environment, dll_overrides;
 
     log_stage("[cfw] stage=native-finalizer-start\n");
+
+    /*
+     * The PowerShell finalizer installs the .NET shared shim update through
+     * wusa before selecting native mscoree. Container builds bypass that
+     * script, so perform the same prerequisite here and prove both loader
+     * architectures exist before publishing the override.
+     */
+    if(!append_wide(mscoree_msu, MAX_PATH, p->cache_dir) ||
+       !append_wide(
+           mscoree_msu,
+           MAX_PATH,
+           L"windows6.1-kb958488-v6001-x64_a137e4f328f01146dfa75d7b5a576090dee948dc.msu"
+       ))
+        return ERROR_INSUFFICIENT_BUFFER;
+    attributes = GetFileAttributesW(mscoree_msu);
+    if(attributes == INVALID_FILE_ATTRIBUTES) return GetLastError();
+    if((attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        return ERROR_INVALID_DATA;
+    if(!append_wide(mscoree_command, MAX_PATH * 2, L"wusa.exe \"") ||
+       !append_wide(mscoree_command, MAX_PATH * 2, mscoree_msu) ||
+       !append_wide(mscoree_command, MAX_PATH * 2, L"\" /quiet /norestart"))
+        return ERROR_INSUFFICIENT_BUFFER;
+    log_stage("[cfw] stage=mscoree-install-start\n");
+    result = run_process(NULL, mscoree_command, 0);
+    if(!install_succeeded(result)) return result;
+    expanded = ExpandEnvironmentStringsW(
+        L"%SystemRoot%\\System32\\mscoree.dll",
+        system_mscoree,
+        MAX_PATH
+    );
+    if(expanded == 0) return GetLastError();
+    if(expanded > MAX_PATH) return ERROR_INSUFFICIENT_BUFFER;
+    expanded = ExpandEnvironmentStringsW(
+        L"%SystemRoot%\\SysWOW64\\mscoree.dll",
+        syswow64_mscoree,
+        MAX_PATH
+    );
+    if(expanded == 0) return GetLastError();
+    if(expanded > MAX_PATH) return ERROR_INSUFFICIENT_BUFFER;
+    attributes = GetFileAttributesW(system_mscoree);
+    if(attributes == INVALID_FILE_ATTRIBUTES) return GetLastError();
+    if((attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        return ERROR_INVALID_DATA;
+    attributes = GetFileAttributesW(syswow64_mscoree);
+    if(attributes == INVALID_FILE_ATTRIBUTES) return GetLastError();
+    if((attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        return ERROR_INVALID_DATA;
+    log_stage("[cfw] stage=mscoree-install-complete\n");
+
     expanded = ExpandEnvironmentStringsW(L"%ProgramData%\\tools\\chocolateyInstall", raw_root, MAX_PATH);
     if(expanded == 0) return GetLastError();
     if(expanded > MAX_PATH) return ERROR_INSUFFICIENT_BUFFER;
@@ -381,7 +434,7 @@ DWORD WINAPI pscore_install(void *ptr){
 
     if(_wgetenv(L"CFW_CONTAINER_BUILDER")) {
         if(!_wgetenv(L"CFW_OFFLINE")) return ERROR_ACCESS_DENIED;
-        return native_finalize_chocolatey();
+        return native_finalize_chocolatey(p);
     }
 
     if(
