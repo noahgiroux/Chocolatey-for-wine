@@ -243,8 +243,10 @@ class LayerContractTests(unittest.TestCase):
         policy = (ROOT / "compat" / "pwsh-policy.reg").read_text(encoding="utf-8")
         self.assertIn('"amsi"=""', policy)
         self.assertIn('"dwmapi"=""', policy)
+        self.assertIn('"mscoree"="builtin"', policy)
         self.assertIn('"rpcrt4"="native,builtin"', policy)
         upstream = (ROOT / "choc_install.ps1").read_text(encoding="utf-8")
+        self.assertIn('"mscoree"="builtin"', upstream)
         self.assertIn('"rpcrt4"="native,builtin"', upstream)
         self.assertIn('export CFW_CONTAINER_BUILDER=1', source)
         self.assertIn('export CFW_EXTERNAL_POWERSHELL=1', source)
@@ -476,7 +478,7 @@ class LayerContractTests(unittest.TestCase):
 
     def test_runtime_evidence_rejects_noncanonical_persisted_proofs(self) -> None:
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
-        anchor = 'path = Path(sys.argv[1])\nvalues = [int(value) for value in sys.argv[2:34]]'
+        anchor = 'path = Path(sys.argv[1])\nvalues = [int(value) for value in sys.argv[2:35]]'
         anchor_index = source.index(anchor)
         program_start = source.rfind("<<'PY2'\n", 0, anchor_index) + len("<<'PY2'\n")
         program_end = source.index("\nPY2\n", anchor_index)
@@ -544,7 +546,7 @@ class LayerContractTests(unittest.TestCase):
                         markers[marker_index].write_bytes(content)
                 metadata = root / f"{case}.json"
                 arguments = [
-                    str(metadata), *("0" for _ in range(32)), str(logs),
+                    str(metadata), *("0" for _ in range(33)), str(logs),
                     *(str(marker) for marker in markers),
                 ]
                 result = subprocess.run(
@@ -676,9 +678,9 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("must be a ghcr.io/pelagians/cage-wine digest", source)
         self.assertIn("CFW_RUNTIME_EVIDENCE_NAME", source)
         self.assertIn("CFW_RUNTIME_MANIFEST_NAME", source)
-        self.assertIn("values = [int(value) for value in sys.argv[2:34]]", source)
-        self.assertIn("logs_path = Path(sys.argv[34])", source)
-        self.assertIn("markers = [Path(value) for value in sys.argv[35:]]", source)
+        self.assertIn("values = [int(value) for value in sys.argv[2:35]]", source)
+        self.assertIn("logs_path = Path(sys.argv[35])", source)
+        self.assertIn("markers = [Path(value) for value in sys.argv[36:]]", source)
 
     def test_wine_identity_and_pre_pwsh_policy_have_isolated_settlement_evidence(self) -> None:
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
@@ -694,6 +696,7 @@ class LayerContractTests(unittest.TestCase):
             "pwsh_regedit_settle_rc",
             "pwsh_query_rc",
             "pwsh_query_settle_rc",
+            "pwsh_mscoree_rc",
             '"wineIdentity"',
             '"prePwshPolicy"',
         ):
