@@ -70,7 +70,7 @@
   },
   "checkoutSources": {
     "choc_install.ps1": {
-      "sha256": "1d38ca54e030d648298e7606cada6d17590b94b78482eb362a80e789398061ea"
+      "sha256": "a800db202548a52417a1e61c124ca0348ca948dc9e0db09122922d73efe46415"
     }
   }
 }
