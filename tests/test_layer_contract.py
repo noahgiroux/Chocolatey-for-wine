@@ -1,3 +1,4 @@
+import hashlib
 import json
 import importlib.util
 import os
@@ -652,7 +653,13 @@ class LayerContractTests(unittest.TestCase):
             self.assertTrue(payload["url"].startswith("https://"), name)
             self.assertRegex(payload["sha256"], r"^[0-9a-f]{64}$", name)
         self.assertEqual(set(inputs["checkoutSources"]), {"choc_install.ps1"})
-        self.assertRegex(inputs["checkoutSources"]["choc_install.ps1"]["sha256"], r"^[0-9a-f]{64}$")
+        installer_digest = inputs["checkoutSources"]["choc_install.ps1"]["sha256"]
+        self.assertRegex(installer_digest, r"^[0-9a-f]{64}$")
+        self.assertEqual(
+            installer_digest,
+            hashlib.sha256((ROOT / "choc_install.ps1").read_bytes()).hexdigest(),
+            "runtime input lock must match the installer compiled by CI",
+        )
 
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
         self.assertIn("runtime-inputs.json", source)
