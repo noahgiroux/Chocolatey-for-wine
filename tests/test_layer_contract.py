@@ -696,6 +696,13 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("synchro-x86.txt", source)
         self.assertIn("chocolatey-install.txt", source)
         self.assertIn("chocolatey-uninstall.txt", source)
+        self.assertIn(
+            r"$marker = 'C:\ProgramData\CFW\RuntimeProbe\chocolatey-install.txt'",
+            source,
+        )
+        self.assertIn("[cfw-smoke] install-script-executed", source)
+        self.assertIn("[cfw-smoke] uninstall-script-executed", source)
+        self.assertIn('cp -f "$chocolatey_runtime_log" "$logs/chocolatey-runtime.log"', source)
         self.assertIn("featurePolicy", source)
         self.assertIn("CFW_WINE_IMAGE", source)
         self.assertIn("CFW_SOURCE_REVISION must be the exact source commit", source)
