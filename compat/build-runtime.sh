@@ -398,6 +398,29 @@ fi
   exit 70
 }
 
+mark_stage prove-clr-policy
+clr_policy_key='HKCU\Software\Wine\DllOverrides'
+trap - ERR
+set +e
+timeout --kill-after=10s 60s wine reg query "$clr_policy_key" /v mscoree \
+  >"$logs/clr-policy.log" 2>&1
+clr_policy_query_rc="$?"
+timeout --kill-after=10s 60s wineserver -w >>"$logs/clr-policy.log" 2>&1
+clr_policy_settle_rc="$?"
+normalize_log "$logs/clr-policy.log"
+grep -Eq 'mscoree[[:space:]]+REG_SZ[[:space:]]+native[[:space:]]*$' \
+  "$logs/clr-policy.log"
+clr_policy_value_rc="$?"
+set -e
+trap on_error ERR
+if [[ "$clr_policy_query_rc" -ne 0 || "$clr_policy_settle_rc" -ne 0 || \
+      "$clr_policy_value_rc" -ne 0 ]]; then
+  printf '[cfw] native .NET CLR policy failed: query=%s settle=%s value=%s\n' \
+    "$clr_policy_query_rc" "$clr_policy_settle_rc" "$clr_policy_value_rc" >&2
+  cat "$logs/clr-policy.log" >&2 || true
+  exit 70
+fi
+
 mark_stage apply-pre-pwsh-policy
 pwsh_policy="$repo_root/compat/pwsh-policy.reg"
 pwsh_policy_win="$(winepath_to_windows pwsh-policy "$pwsh_policy")"

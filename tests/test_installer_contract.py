@@ -64,6 +64,9 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
         self.assertIn("machine_path,", native)
         self.assertIn("process_path,", native)
         self.assertIn("SetEnvironmentVariableW", native)
+        self.assertIn('L"Software\\\\Wine\\\\DllOverrides"', native)
+        self.assertIn('L"mscoree"', native)
+        self.assertIn('L"native"', native)
         self.assertNotIn("configure_container_pwsh_policy", INSTALLER)
         self.assertNotIn('L"rpcrt4"', INSTALLER)
 
