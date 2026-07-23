@@ -59,6 +59,7 @@ The detached manifest binds the archive to:
 - the `runtime.json` hash and the exact behavioral proof inventory required by
   `compat/contract.json`;
 - producer-declared consumer interfaces, including canonical Chocolatey paths
+  plus direct-`wine` query and `wineconsole` package-operation launchers
   and the post-bootstrap runtime environment.
 
 The runtime build is valid only when all behavioral proofs pass:

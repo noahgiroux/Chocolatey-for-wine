@@ -603,10 +603,12 @@ fi
 # Chocolatey's bin\choco.exe is a shimgen launcher for ..\choco.exe. That
 # compatibility shim cannot reliably create its managed child under Wine, so
 # the CFW execution contract uses the real Chocolatey console executable.
-# Launch Chocolatey directly: wineconsole is required for the Synchro/pwsh
-# surfaces, but it suppresses redirected Chocolatey stdout in container builds.
+# Query Chocolatey directly so redirected output remains observable. Package
+# operations need wineconsole because the Synchro child process must inherit a
+# real Windows console before it can host pwsh.exe.
 choco_win='C:\ProgramData\chocolatey\choco.exe'
-choco_launcher=(wine "$choco_win")
+choco_query_launcher=(wine "$choco_win")
+choco_package_launcher=(wineconsole "$choco_win")
 
 wrapper64="$wine_prefix/drive_c/windows/system32/WindowsPowerShell/v1.0/powershell.exe"
 wrapper32="$wine_prefix/drive_c/windows/syswow64/WindowsPowerShell/v1.0/powershell.exe"
@@ -696,7 +698,7 @@ smoke_feed_win="$(winepath_to_windows smoke-feed "$smoke_feed")"
 
 trap - ERR
 set +e
-timeout --kill-after=15s 300s "${choco_launcher[@]}" feature list --limit-output >"$logs/choco-feature-status.log" 2>&1
+timeout --kill-after=15s 300s "${choco_query_launcher[@]}" feature list --limit-output >"$logs/choco-feature-status.log" 2>&1
 feature_status_command_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/choco-feature-status.log" 2>&1
 feature_status_settle_rc="$?"
@@ -708,7 +710,7 @@ set +e
 python3 "$repo_root/compat/set-chocolatey-policy.py" verify-status \
   "$logs/choco-feature-status.log"
 feature_status_rc="$?"
-timeout --kill-after=15s 300s "${choco_launcher[@]}" --version >"$logs/choco-version.log" 2>&1
+timeout --kill-after=15s 300s "${choco_query_launcher[@]}" --version >"$logs/choco-version.log" 2>&1
 choco_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/choco-version.log" 2>&1
 choco_settle_rc="$?"
@@ -769,7 +771,7 @@ if [[ "$feature_status_command_rc" -ne 0 || "$feature_status_settle_rc" -ne 0 ||
     "$choco_loader_probe_compile_rc" "$choco_loader_probe_compile_settle_rc" \
     "$choco_loader_probe_rc" "$choco_loader_probe_settle_rc" >&2
   WINEDEBUG=+process,+loaddll,+seh timeout --kill-after=15s 90s \
-    "${choco_launcher[@]}" --version >"$logs/choco-version-diagnostic.log" 2>&1
+    "${choco_query_launcher[@]}" --version >"$logs/choco-version-diagnostic.log" 2>&1
   choco_diagnostic_rc="$?"
   timeout --kill-after=10s 120s wineserver -w >>"$logs/choco-version-diagnostic.log" 2>&1
   choco_diagnostic_settle_rc="$?"
@@ -785,12 +787,12 @@ timeout --kill-after=15s 300s wineconsole "$wrapper32" -NoLogo -NonInteractive -
 synchro32_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/synchro-x86.log" 2>&1
 synchro32_settle_rc="$?"
-timeout --kill-after=30s 600s "${choco_launcher[@]}" install cfw-runtime-smoke -y \
+timeout --kill-after=30s 600s "${choco_package_launcher[@]}" install cfw-runtime-smoke -y \
   --source "$smoke_feed_win" --use-system-powershell >"$logs/choco-smoke-install.log" 2>&1
 smoke_install_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/choco-smoke-install.log" 2>&1
 smoke_install_settle_rc="$?"
-timeout --kill-after=30s 600s "${choco_launcher[@]}" uninstall cfw-runtime-smoke -y \
+timeout --kill-after=30s 600s "${choco_package_launcher[@]}" uninstall cfw-runtime-smoke -y \
   --use-system-powershell >"$logs/choco-smoke-uninstall.log" 2>&1
 smoke_uninstall_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/choco-smoke-uninstall.log" 2>&1

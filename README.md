@@ -37,6 +37,8 @@ inputs. It requires all of the following before producing an artifact:
 - the CFW prepared-runtime PowerShell finalizer completes and creates its
   sentinel;
 - pinned Synchro v4.2.0 x64 and x86 wrappers each create a filesystem side effect;
+- the runtime interface separates direct-`wine` Chocolatey queries from
+  `wineconsole` package operations so Synchro receives a real console;
 - canonical Chocolatey reports its version and its in-process PowerShell host is
   disabled and verified;
 - a CFW-controlled local Chocolatey package installs and uninstalls cleanly;

@@ -21,7 +21,7 @@ CFW is the sole owner of its prepared Wine compatibility runtime:
 3. CFW applies one source-controlled pre-PowerShell Wine policy, including its maintained `pwsh.exe` RPC override; this policy is producer-owned compatibility behavior, not a Cage reconstruction.
 4. CFW launches direct `pwsh.exe` boundaries through Wine 11's `wineconsole <command>` interface so PowerShell receives its required `CONOUT$`; the behavioral proof must persist an entry token, exact version, and filesystem sentinel.
 5. Only after that proof may CFW run its prepared-runtime PowerShell finalizer.
-6. CFW installs and proves Synchro x64/x86, canonical Chocolatey policy, and a local package install/uninstall lifecycle.
+6. CFW installs and proves Synchro x64/x86, canonical Chocolatey policy, and a local package install/uninstall lifecycle. Chocolatey queries run through direct `wine` for observable output, while package operations run through `wineconsole` so Synchro inherits the console required by `pwsh.exe`.
 7. CFW publishes a versioned prefix archive, runtime evidence, detached manifest, and checksum only when all proofs pass.
 
 The prepared-runtime finalizer is authoritative for the prepared-runtime mode. The historical desktop installer may retain its legacy finalizer, but consumers never depend on its internal layout.

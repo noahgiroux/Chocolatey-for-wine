@@ -34,7 +34,9 @@
     "interfaces": {
       "chocolatey": {
         "windowsPath": "C:\\ProgramData\\chocolatey\\choco.exe",
-        "prefixRelativePath": "drive_c/ProgramData/chocolatey/choco.exe"
+        "prefixRelativePath": "drive_c/ProgramData/chocolatey/choco.exe",
+        "queryLauncher": "wine",
+        "packageLauncher": "wineconsole"
       },
       "environment": {
         "WINEDLLOVERRIDES": ""
