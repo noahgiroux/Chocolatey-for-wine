@@ -82,6 +82,40 @@ static DWORD run_process(LPCWSTR application, LPWSTR command_line, DWORD creatio
     return exit_code;
 }
 
+static DWORD run_process_bounded(
+    LPCWSTR application,
+    LPWSTR command_line,
+    DWORD creation_flags,
+    DWORD timeout_ms
+) {
+    STARTUPINFOW startup = {0};
+    PROCESS_INFORMATION process = {0};
+    DWORD exit_code = ERROR_GEN_FAILURE;
+    DWORD wait_result;
+
+    startup.cb = sizeof(startup);
+    if(!CreateProcessW(application, command_line, 0, 0, 0, creation_flags, 0, 0, &startup, &process))
+        return GetLastError();
+    wait_result = WaitForSingleObject(process.hProcess, timeout_ms);
+    if(wait_result == WAIT_OBJECT_0) {
+        if(!GetExitCodeProcess(process.hProcess, &exit_code))
+            exit_code = GetLastError();
+    }
+    else if(wait_result == WAIT_TIMEOUT) {
+        if(!TerminateProcess(process.hProcess, ERROR_TIMEOUT))
+            exit_code = GetLastError();
+        else {
+            WaitForSingleObject(process.hProcess, 10000);
+            exit_code = ERROR_TIMEOUT;
+        }
+    }
+    else
+        exit_code = GetLastError();
+    CloseHandle(process.hProcess);
+    CloseHandle(process.hThread);
+    return exit_code;
+}
+
 static DWORD download_file(LPCWSTR source, LPCWSTR destination) {
     HRESULT result;
     if(_wgetenv(L"CFW_OFFLINE")) return ERROR_FILE_NOT_FOUND;
@@ -139,8 +173,8 @@ static DWORD native_finalize_chocolatey(struct paths *p) {
        !append_wide(mscoree_command, MAX_PATH * 2, L"\" /quiet /norestart"))
         return ERROR_INSUFFICIENT_BUFFER;
     log_stage("[cfw] stage=mscoree-install-start\n");
-    result = run_process(NULL, mscoree_command, 0);
-    if(!install_succeeded(result)) return result;
+    result = run_process_bounded(NULL, mscoree_command, 0, 180000);
+    if(!install_succeeded(result) && result != ERROR_TIMEOUT) return result;
     expanded = ExpandEnvironmentStringsW(
         L"%SystemRoot%\\System32\\mscoree.dll",
         system_mscoree,

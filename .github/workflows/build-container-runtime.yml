@@ -26,6 +26,10 @@ permissions:
   contents: read
   packages: read
 
+concurrency:
+  group: cfw-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   contract:
     name: Resolve compatibility contract
