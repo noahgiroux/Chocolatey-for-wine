@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -245,10 +246,11 @@ class LayerContractTests(unittest.TestCase):
         self.assertEqual(inputs["downloads"]["synchro32"]["sha256"], "ca76d774273ffa37053545f8e4ad63c8914461828f1d1eef7a1915c9656fed4c")
         finalizer = (ROOT / "compat" / "finalize-runtime.ps1").read_text(encoding="utf-8")
         self.assertNotIn("feature disable --name=powershellHost", finalizer)
-        self.assertNotIn("feature disable --name=powershellHost", source)
+        self.assertIn('"${choco_launcher[@]}" feature disable --name=powershellHost', source)
         self.assertNotIn("powershellHostFeatures", finalizer)
         self.assertIn('mark_stage apply-chocolatey-policy', source)
-        self.assertIn('timeout --kill-after=5s 60s python3 "$repo_root/compat/set-chocolatey-policy.py" apply "$chocolatey_config"', source)
+        self.assertIn('choco_launcher=(wineconsole "$choco_win")', source)
+        self.assertNotIn('set-chocolatey-policy.py" apply', source)
         self.assertIn('python3 "$repo_root/compat/set-chocolatey-policy.py" verify-status', source)
         policy_writer = (ROOT / "compat" / "set-chocolatey-policy.py").read_text(encoding="utf-8")
         self.assertIn('feature.set("enabled", "false")', policy_writer)
@@ -271,6 +273,8 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("choco_version_rc", source)
         self.assertIn("synchro-x64.txt", source)
         self.assertIn("synchro-x86.txt", source)
+        self.assertIn("CFW_PROFILE_COMPOSITION", source)
+        self.assertIn("--use-system-powershell", source)
         self.assertIn("cfw-runtime-prefix", source)
         self.assertIn("cfw.runtime-build/v2", source)
         self.assertIn('contract = json.loads(contract_path.read_text', source)
@@ -311,10 +315,10 @@ class LayerContractTests(unittest.TestCase):
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
         lines = [line.strip() for line in source.splitlines()]
 
-        self.assertEqual(lines.count("trap - ERR"), 11)
-        self.assertEqual(lines.count("set +e"), 11)
-        self.assertEqual(lines.count("set -e"), 11)
-        self.assertEqual(lines.count("trap on_error ERR"), 12)
+        self.assertEqual(lines.count("trap - ERR"), 12)
+        self.assertEqual(lines.count("set +e"), 12)
+        self.assertEqual(lines.count("set -e"), 12)
+        self.assertEqual(lines.count("trap on_error ERR"), 13)
         for index, line in enumerate(lines):
             if line == "set +e":
                 self.assertEqual(lines[index - 1], "trap - ERR")
@@ -417,7 +421,7 @@ class LayerContractTests(unittest.TestCase):
 
     def test_runtime_evidence_rejects_noncanonical_persisted_proofs(self) -> None:
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
-        anchor = 'path = Path(sys.argv[1])\nvalues = [int(value) for value in sys.argv[2:33]]'
+        anchor = 'path = Path(sys.argv[1])\nvalues = [int(value) for value in sys.argv[2:35]]'
         anchor_index = source.index(anchor)
         program_start = source.rfind("<<'PY2'\n", 0, anchor_index) + len("<<'PY2'\n")
         program_end = source.index("\nPY2\n", anchor_index)
@@ -485,7 +489,7 @@ class LayerContractTests(unittest.TestCase):
                         markers[marker_index].write_bytes(content)
                 metadata = root / f"{case}.json"
                 arguments = [
-                    str(metadata), *("0" for _ in range(31)), str(logs),
+                    str(metadata), *("0" for _ in range(33)), str(logs),
                     *(str(marker) for marker in markers),
                 ]
                 result = subprocess.run(
@@ -560,6 +564,10 @@ class LayerContractTests(unittest.TestCase):
         )
         self.assertLess(
             source.index('mark_stage finalize-prepared-runtime'),
+            source.index('mark_stage install-synchro'),
+        )
+        self.assertLess(
+            source.index('mark_stage install-synchro'),
             source.index('mark_stage apply-chocolatey-policy'),
         )
         self.assertLess(
@@ -613,9 +621,9 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("must be a ghcr.io/pelagians/cage-wine digest", source)
         self.assertIn("CFW_RUNTIME_EVIDENCE_NAME", source)
         self.assertIn("CFW_RUNTIME_MANIFEST_NAME", source)
-        self.assertIn("values = [int(value) for value in sys.argv[2:33]]", source)
-        self.assertIn("logs_path = Path(sys.argv[33])", source)
-        self.assertIn("markers = [Path(value) for value in sys.argv[34:]]", source)
+        self.assertIn("values = [int(value) for value in sys.argv[2:35]]", source)
+        self.assertIn("logs_path = Path(sys.argv[35])", source)
+        self.assertIn("markers = [Path(value) for value in sys.argv[36:]]", source)
 
     def test_wine_identity_and_pre_pwsh_policy_have_isolated_settlement_evidence(self) -> None:
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
@@ -763,6 +771,14 @@ class LayerContractTests(unittest.TestCase):
                     env=environment,
                 )
             self.assertEqual(archives[0].read_bytes(), archives[1].read_bytes())
+            with tarfile.open(archives[0], "r:gz") as archive:
+                self.assertFalse(
+                    any(
+                        member.name == "./dosdevices"
+                        or member.name.startswith("./dosdevices/")
+                        for member in archive.getmembers()
+                    )
+                )
 
     def test_runtime_workflow_resolves_image_digest_and_publishes_tagged_assets(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "build-container-runtime.yml").read_text(encoding="utf-8")
@@ -808,6 +824,7 @@ class LayerContractTests(unittest.TestCase):
         self.assertEqual(
             [path.name for path in fragments],
             [
+                "10-runtime-contract.ps1",
                 "20-chocolatey.ps1",
                 "30-cfw-winetricks.ps1",
                 "40-cfw-command-adapters.ps1",

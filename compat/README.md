@@ -64,7 +64,8 @@ The runtime build is valid only when all behavioral proofs pass:
    emits script entry, reports the exact locked version, and creates matching
    filesystem evidence and a sentinel;
 5. the prepared-runtime PowerShell finalizer completes and creates its sentinel;
-6. both Synchro wrappers create independent x64/x86 filesystem sentinels;
+6. both Synchro wrappers load the composed CFW profile and create independent
+   x64/x86 filesystem sentinels;
 7. Chocolatey’s in-process `powershellHost` is disabled and its disabled status
    is verified;
 8. canonical Chocolatey emits one exact observed version equal to the locked version;
@@ -88,6 +89,7 @@ The prepared runtime owns:
 
 ```text
 C:\Program Files\PowerShell\7\profile.ps1
+C:\ProgramData\Chocolatey-for-wine\profile.d\10-runtime-contract.ps1
 C:\ProgramData\Chocolatey-for-wine\profile.d\20-chocolatey.ps1
 C:\ProgramData\Chocolatey-for-wine\profile.d\30-cfw-winetricks.ps1
 C:\ProgramData\Chocolatey-for-wine\profile.d\40-cfw-command-adapters.ps1

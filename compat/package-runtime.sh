@@ -28,6 +28,8 @@ umask 022
 # Normalize every archive-visible input that may otherwise vary by build host:
 # lexical order, tar/PAX format, volatile PAX metadata, ownership, timestamp,
 # portable permissions, and the gzip header.
+# Wine recreates dosdevices during the consumer's wineboot -u. Excluding it is
+# also required for portable extraction because z: is an absolute host symlink.
 tar \
   --sort=name \
   --format=posix \
@@ -37,6 +39,7 @@ tar \
   --group=0 \
   --numeric-owner \
   --mode='u+rwX,go+rX,go-w' \
+  --exclude='./dosdevices' \
   -C "$prefix" \
   -cf - . \
   | gzip -n > "$part"
