@@ -695,6 +695,34 @@ if [[ "$feature_status_command_rc" -ne 0 || "$feature_status_settle_rc" -ne 0 ||
   normalize_log "$logs/choco-version-direct.log"
   printf '[cfw] Chocolatey direct diagnostic return codes: process=%s settle=%s\n' \
     "$choco_direct_rc" "$choco_direct_settle_rc" >&2
+  choco_loader_probe_source="$probe_dir/choco-loader-probe.cs"
+  choco_loader_probe_exe="$probe_dir/choco-loader-probe.exe"
+  cp -f "$repo_root/compat/choco-loader-probe.cs" "$choco_loader_probe_source"
+  choco_loader_probe_source_win="$(winepath_to_windows choco-loader-probe-source "$choco_loader_probe_source")"
+  choco_loader_probe_exe_win="$(winepath_to_windows choco-loader-probe-executable "$choco_loader_probe_exe")"
+  csc_win='C:\windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+  WINEDEBUG=-all timeout --kill-after=15s 120s \
+    wine "$csc_win" /nologo "/out:$choco_loader_probe_exe_win" "$choco_loader_probe_source_win" \
+    >"$logs/choco-loader-probe-compile.log" 2>&1
+  choco_loader_probe_compile_rc="$?"
+  timeout --kill-after=10s 120s wineserver -w >>"$logs/choco-loader-probe-compile.log" 2>&1
+  choco_loader_probe_compile_settle_rc="$?"
+  if [[ "$choco_loader_probe_compile_rc" -eq 0 && "$choco_loader_probe_compile_settle_rc" -eq 0 ]]; then
+    WINEDEBUG=-all timeout --kill-after=15s 120s \
+      wine "$choco_loader_probe_exe_win" "$choco_win" >"$logs/choco-loader-probe.log" 2>&1
+    choco_loader_probe_rc="$?"
+    timeout --kill-after=10s 120s wineserver -w >>"$logs/choco-loader-probe.log" 2>&1
+    choco_loader_probe_settle_rc="$?"
+  else
+    choco_loader_probe_rc=125
+    choco_loader_probe_settle_rc=125
+    printf 'loader probe was not run because compilation failed\n' >"$logs/choco-loader-probe.log"
+  fi
+  normalize_log "$logs/choco-loader-probe-compile.log"
+  normalize_log "$logs/choco-loader-probe.log"
+  printf '[cfw] Chocolatey loader probe return codes: compile=%s compileSettle=%s process=%s settle=%s\n' \
+    "$choco_loader_probe_compile_rc" "$choco_loader_probe_compile_settle_rc" \
+    "$choco_loader_probe_rc" "$choco_loader_probe_settle_rc" >&2
   WINEDEBUG=+process,+loaddll,+seh timeout --kill-after=15s 90s \
     "${choco_launcher[@]}" --version >"$logs/choco-version-diagnostic.log" 2>&1
   choco_diagnostic_rc="$?"
