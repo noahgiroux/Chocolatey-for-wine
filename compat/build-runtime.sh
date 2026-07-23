@@ -384,15 +384,17 @@ installer_settle_rc="$?"
 set -e
 trap on_error ERR
 pwsh="$wine_prefix/drive_c/Program Files/PowerShell/7/pwsh.exe"
-choco="$wine_prefix/drive_c/ProgramData/chocolatey/bin/choco.exe"
+choco="$wine_prefix/drive_c/ProgramData/chocolatey/choco.exe"
+choco_shim="$wine_prefix/drive_c/ProgramData/chocolatey/bin/choco.exe"
 
 if [[ "$installer_rc" -ne 0 || "$installer_settle_rc" -ne 0 ]]; then
   printf 'CFW installer failed: installer=%s settle=%s\n' "$installer_rc" "$installer_settle_rc" >&2
   tail -160 "$logs/installer.log" >&2 || true
   exit 70
 fi
-[[ -s "$pwsh" && -s "$choco" ]] || {
-  printf 'CFW output incomplete: pwsh=%s choco=%s\n' "$pwsh" "$choco" >&2
+[[ -s "$pwsh" && -s "$choco" && -s "$choco_shim" ]] || {
+  printf 'CFW output incomplete: pwsh=%s choco=%s choco_shim=%s\n' \
+    "$pwsh" "$choco" "$choco_shim" >&2
   exit 70
 }
 
@@ -567,7 +569,10 @@ if [[ "$prepared_finalizer_rc" -ne 0 || "$prepared_finalizer_settle_rc" -ne 0 ||
   exit 70
 fi
 
-choco_win='C:\ProgramData\chocolatey\bin\choco.exe'
+# Chocolatey's bin\choco.exe is a shimgen launcher for ..\choco.exe. That
+# compatibility shim cannot reliably create its managed child under Wine, so
+# the CFW execution contract uses the real Chocolatey console executable.
+choco_win='C:\ProgramData\chocolatey\choco.exe'
 choco_launcher=(wineconsole "$choco_win")
 
 wrapper64="$wine_prefix/drive_c/windows/system32/WindowsPowerShell/v1.0/powershell.exe"
@@ -638,11 +643,31 @@ choco_settle_rc="$?"
 set -e
 trap on_error ERR
 normalize_log "$logs/choco-version.log"
-CFW_OBSERVED_CHOCOLATEY_VERSION="$(read_single_observed_line chocolatey-version "$logs/choco-version.log")"
 trap - ERR
 set +e
-[[ "$CFW_OBSERVED_CHOCOLATEY_VERSION" == "$CFW_EXPECTED_CHOCOLATEY_VERSION" ]]
-choco_version_rc="$?"
+CFW_OBSERVED_CHOCOLATEY_VERSION="$(read_single_observed_line chocolatey-version "$logs/choco-version.log")"
+choco_version_output_rc="$?"
+if [[ "$choco_version_output_rc" -ne 0 ]]; then
+  choco_version_rc="$choco_version_output_rc"
+elif [[ "$CFW_OBSERVED_CHOCOLATEY_VERSION" == "$CFW_EXPECTED_CHOCOLATEY_VERSION" ]]; then
+  choco_version_rc=0
+else
+  choco_version_rc=1
+fi
+if [[ "$feature_status_command_rc" -ne 0 || "$feature_status_settle_rc" -ne 0 || \
+      "$feature_status_rc" -ne 0 || "$choco_rc" -ne 0 || "$choco_settle_rc" -ne 0 || \
+      "$choco_version_rc" -ne 0 ]]; then
+  printf '[cfw] Chocolatey probe return codes: feature=%s featureSettle=%s featureStatus=%s version=%s versionSettle=%s versionProof=%s\n' \
+    "$feature_status_command_rc" "$feature_status_settle_rc" "$feature_status_rc" \
+    "$choco_rc" "$choco_settle_rc" "$choco_version_rc" >&2
+  WINEDEBUG=+process,+loaddll,+seh timeout --kill-after=15s 90s \
+    "${choco_launcher[@]}" --version >"$logs/choco-version-diagnostic.log" 2>&1
+  choco_diagnostic_rc="$?"
+  timeout --kill-after=10s 120s wineserver -w >>"$logs/choco-version-diagnostic.log" 2>&1
+  choco_diagnostic_settle_rc="$?"
+  printf '[cfw] Chocolatey diagnostic return codes: process=%s settle=%s\n' \
+    "$choco_diagnostic_rc" "$choco_diagnostic_settle_rc" >&2
+fi
 timeout --kill-after=15s 300s wineconsole "$wrapper64" -NoLogo -NonInteractive -Command "if (\$env:CFW_PROFILE_COMPOSITION -ne 'cfw-runtime-v1') { throw 'CFW profile composition failed' }; [IO.File]::WriteAllText('$synchro64_marker_win', 'synchro-x64-profile-composed')" >"$logs/synchro-x64.log" 2>&1
 synchro64_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/synchro-x64.log" 2>&1

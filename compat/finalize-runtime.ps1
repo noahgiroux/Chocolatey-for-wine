@@ -39,9 +39,13 @@ trap {
 
 $chocolateyRoot = Join-Path $env:ProgramData 'chocolatey'
 $chocolateyBin = Join-Path $chocolateyRoot 'bin'
-$choco = Join-Path $chocolateyBin 'choco.exe'
+$choco = Join-Path $chocolateyRoot 'choco.exe'
+$chocoShim = Join-Path $chocolateyBin 'choco.exe'
 if (-not (Test-Path -LiteralPath $choco -PathType Leaf)) {
     throw "canonical Chocolatey executable is missing: $choco"
+}
+if (-not (Test-Path -LiteralPath $chocoShim -PathType Leaf)) {
+    throw "Chocolatey compatibility shim is missing: $chocoShim"
 }
 Write-Diagnostic -Message "[cfw] stage=canonical-chocolatey-present`n"
 
