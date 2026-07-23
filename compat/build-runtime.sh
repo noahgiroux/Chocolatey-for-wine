@@ -290,13 +290,17 @@ import sys
 import zipfile
 
 archive = Path(sys.argv[1])
-install = r'''$marker = Join-Path $env:ProgramData 'CFW\RuntimeProbe\chocolatey-install.txt'
+install = r'''$ErrorActionPreference = 'Stop'
+$marker = 'C:\ProgramData\CFW\RuntimeProbe\chocolatey-install.txt'
 [IO.Directory]::CreateDirectory((Split-Path -Parent $marker)) | Out-Null
 [IO.File]::WriteAllText($marker, 'installed')
+[Console]::Out.WriteLine('[cfw-smoke] install-script-executed')
 '''
-uninstall = r'''$marker = Join-Path $env:ProgramData 'CFW\RuntimeProbe\chocolatey-uninstall.txt'
+uninstall = r'''$ErrorActionPreference = 'Stop'
+$marker = 'C:\ProgramData\CFW\RuntimeProbe\chocolatey-uninstall.txt'
 [IO.Directory]::CreateDirectory((Split-Path -Parent $marker)) | Out-Null
 [IO.File]::WriteAllText($marker, 'uninstalled')
+[Console]::Out.WriteLine('[cfw-smoke] uninstall-script-executed')
 '''
 nuspec = '''<?xml version="1.0"?>
 <package><metadata><id>cfw-runtime-smoke</id><version>0.1.0</version><title>CFW runtime smoke</title><authors>CFW</authors><description>Deterministic CFW runtime lifecycle proof.</description></metadata></package>
@@ -791,6 +795,10 @@ timeout --kill-after=30s 600s "${choco_launcher[@]}" uninstall cfw-runtime-smoke
 smoke_uninstall_rc="$?"
 timeout --kill-after=10s 120s wineserver -w >>"$logs/choco-smoke-uninstall.log" 2>&1
 smoke_uninstall_settle_rc="$?"
+chocolatey_runtime_log="$chocolatey_root/logs/chocolatey.log"
+if [[ -f "$chocolatey_runtime_log" ]]; then
+  cp -f "$chocolatey_runtime_log" "$logs/chocolatey-runtime.log"
+fi
 set -e
 trap on_error ERR
 export CFW_OBSERVED_CHOCOLATEY_VERSION
