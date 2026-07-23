@@ -150,6 +150,38 @@ class LayerContractTests(unittest.TestCase):
             self.assertEqual(backup.read_bytes(), valid)
             self.assertEqual(list(root.glob("*.update")), [])
 
+        template = ROOT / "compat" / "chocolatey.config"
+        with tempfile.TemporaryDirectory() as directory:
+            chocolatey_root = Path(directory) / "prefix" / "drive_c" / "ProgramData" / "chocolatey"
+            chocolatey_root.mkdir(parents=True)
+            config = chocolatey_root / "config" / "chocolatey.config"
+            result = subprocess.run(
+                ["python3", str(writer), "seed", str(template), str(config)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(config.read_bytes(), template.read_bytes())
+            self.assertIn('enabled="false" setExplicitly="true"', config.read_text(encoding="utf-8"))
+            self.assertEqual(list(config.parent.glob("*.update")), [])
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            chocolatey_root = root / "prefix" / "drive_c" / "ProgramData" / "chocolatey"
+            chocolatey_root.mkdir(parents=True)
+            invalid_template = root / "invalid.config"
+            invalid_template.write_bytes(valid)
+            config = chocolatey_root / "config" / "chocolatey.config"
+            result = subprocess.run(
+                ["python3", str(writer), "seed", str(invalid_template), str(config)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 70)
+            self.assertFalse(config.exists())
+
     def test_contract_defines_prepared_prefix_runtime(self) -> None:
         contract = json.loads((ROOT / "compat" / "contract.json").read_text(encoding="utf-8"))
 
@@ -246,19 +278,28 @@ class LayerContractTests(unittest.TestCase):
         self.assertEqual(inputs["downloads"]["synchro32"]["sha256"], "ca76d774273ffa37053545f8e4ad63c8914461828f1d1eef7a1915c9656fed4c")
         finalizer = (ROOT / "compat" / "finalize-runtime.ps1").read_text(encoding="utf-8")
         self.assertNotIn("feature disable --name=powershellHost", finalizer)
-        self.assertIn('"${choco_launcher[@]}" feature disable --name=powershellHost', source)
+        self.assertNotIn("feature disable --name=powershellHost", source)
         self.assertNotIn("powershellHostFeatures", finalizer)
         self.assertIn('mark_stage apply-chocolatey-policy', source)
         self.assertIn('choco_launcher=(wineconsole "$choco_win")', source)
         self.assertNotIn('set-chocolatey-policy.py" apply', source)
+        self.assertIn('set-chocolatey-policy.py" seed', source)
+        self.assertIn('chocolatey_config_template="$repo_root/compat/chocolatey.config"', source)
         self.assertIn('python3 "$repo_root/compat/set-chocolatey-policy.py" verify-status', source)
         policy_writer = (ROOT / "compat" / "set-chocolatey-policy.py").read_text(encoding="utf-8")
+        policy_template = (ROOT / "compat" / "chocolatey.config").read_text(encoding="utf-8")
         self.assertIn('feature.set("enabled", "false")', policy_writer)
         self.assertIn('feature.set("setExplicitly", "true")', policy_writer)
         self.assertIn('tempfile.mkstemp(', policy_writer)
         self.assertIn('os.replace(temporary, path)', policy_writer)
         self.assertIn('getattr(os, "O_NOFOLLOW", 0)', policy_writer)
         self.assertIn("stat.S_ISLNK", policy_writer)
+        self.assertIn("Chocolatey CLI 2.6.0", policy_template)
+        self.assertIn("4321c87bceeaf7f6262d2616f20bddd7e432e8d8", policy_template)
+        self.assertIn(
+            '<feature name="powershellHost" enabled="false" setExplicitly="true" />',
+            policy_template,
+        )
         self.assertIn("pwsh-probe.log", source)
         self.assertIn('normalize_log "$logs/pwsh-probe.log"', source)
         self.assertIn('normalize_log "$logs/prepared-finalizer.log"', source)
@@ -421,7 +462,7 @@ class LayerContractTests(unittest.TestCase):
 
     def test_runtime_evidence_rejects_noncanonical_persisted_proofs(self) -> None:
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
-        anchor = 'path = Path(sys.argv[1])\nvalues = [int(value) for value in sys.argv[2:35]]'
+        anchor = 'path = Path(sys.argv[1])\nvalues = [int(value) for value in sys.argv[2:34]]'
         anchor_index = source.index(anchor)
         program_start = source.rfind("<<'PY2'\n", 0, anchor_index) + len("<<'PY2'\n")
         program_end = source.index("\nPY2\n", anchor_index)
@@ -489,7 +530,7 @@ class LayerContractTests(unittest.TestCase):
                         markers[marker_index].write_bytes(content)
                 metadata = root / f"{case}.json"
                 arguments = [
-                    str(metadata), *("0" for _ in range(33)), str(logs),
+                    str(metadata), *("0" for _ in range(32)), str(logs),
                     *(str(marker) for marker in markers),
                 ]
                 result = subprocess.run(
@@ -621,9 +662,9 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("must be a ghcr.io/pelagians/cage-wine digest", source)
         self.assertIn("CFW_RUNTIME_EVIDENCE_NAME", source)
         self.assertIn("CFW_RUNTIME_MANIFEST_NAME", source)
-        self.assertIn("values = [int(value) for value in sys.argv[2:35]]", source)
-        self.assertIn("logs_path = Path(sys.argv[35])", source)
-        self.assertIn("markers = [Path(value) for value in sys.argv[36:]]", source)
+        self.assertIn("values = [int(value) for value in sys.argv[2:34]]", source)
+        self.assertIn("logs_path = Path(sys.argv[34])", source)
+        self.assertIn("markers = [Path(value) for value in sys.argv[35:]]", source)
 
     def test_wine_identity_and_pre_pwsh_policy_have_isolated_settlement_evidence(self) -> None:
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")

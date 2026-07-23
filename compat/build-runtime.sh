@@ -584,25 +584,24 @@ test -s "$wrapper64" && test -s "$wrapper32"
 export ChocolateyInstall='C:\ProgramData\chocolatey'
 export ChocolateyToolsLocation='C:\tools'
 
-# Chocolatey is a managed console application. Wine 11 returns an unusable 255
-# status when it is launched without a console, just as it does for pwsh.exe.
-# Use the same proven Wine console boundary and let Chocolatey create and own
-# its config file instead of editing an assumed host-side path.
+# CFW's native bootstrap promotes the canonical Chocolatey tree before
+# Chocolatey's first command, but the upstream package does not contain the
+# config directory or embedded default config as a loose file. Seed the locked
+# 2.6.0 template with CFW's external-host policy before starting choco.exe.
 mark_stage apply-chocolatey-policy
+chocolatey_config_template="$repo_root/compat/chocolatey.config"
+chocolatey_config="$wine_prefix/drive_c/ProgramData/chocolatey/config/chocolatey.config"
 trap - ERR
 set +e
-timeout --kill-after=15s 300s "${choco_launcher[@]}" feature disable --name=powershellHost \
-  >"$logs/choco-feature-disable.log" 2>&1
-feature_disable_rc="$?"
-timeout --kill-after=10s 120s wineserver -w >>"$logs/choco-feature-disable.log" 2>&1
-feature_disable_settle_rc="$?"
+timeout --kill-after=5s 60s python3 "$repo_root/compat/set-chocolatey-policy.py" seed \
+  "$chocolatey_config_template" "$chocolatey_config" >"$logs/chocolatey-policy-seed.log" 2>&1
+feature_policy_seed_rc="$?"
 set -e
 trap on_error ERR
-normalize_log "$logs/choco-feature-disable.log"
-if [[ "$feature_disable_rc" -ne 0 || "$feature_disable_settle_rc" -ne 0 ]]; then
-  printf 'Chocolatey powershellHost disable failed: process=%s settle=%s\n' \
-    "$feature_disable_rc" "$feature_disable_settle_rc" >&2
-  cat "$logs/choco-feature-disable.log" >&2 || true
+if [[ "$feature_policy_seed_rc" -ne 0 ]]; then
+  printf 'Chocolatey powershellHost policy seed failed: process=%s\n' \
+    "$feature_policy_seed_rc" >&2
+  cat "$logs/chocolatey-policy-seed.log" >&2 || true
   exit 70
 fi
 
@@ -669,7 +668,7 @@ export CFW_OBSERVED_CHOCOLATEY_VERSION
 python3 - "$metadata" \
   "$installer_rc" "$installer_settle_rc" "$pwsh_rc" "$pwsh_settle_rc" \
   "$prepared_finalizer_rc" "$prepared_finalizer_settle_rc" \
-  "$feature_disable_rc" "$feature_disable_settle_rc" \
+  "$feature_policy_seed_rc" \
   "$feature_status_command_rc" "$feature_status_settle_rc" "$feature_status_rc" \
   "$choco_rc" "$choco_settle_rc" "$choco_version_rc" \
   "$synchro64_rc" "$synchro64_settle_rc" "$synchro32_rc" "$synchro32_settle_rc" \
@@ -686,13 +685,13 @@ import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-values = [int(value) for value in sys.argv[2:35]]
-logs_path = Path(sys.argv[35])
-markers = [Path(value) for value in sys.argv[36:]]
+values = [int(value) for value in sys.argv[2:34]]
+logs_path = Path(sys.argv[34])
+markers = [Path(value) for value in sys.argv[35:]]
 keys = [
     "installer", "installerSettle", "pwsh", "pwshSettle", "preparedFinalizer",
-    "preparedFinalizerSettle", "featurePolicyDisable", "featurePolicyDisableSettle",
-    "featurePolicyStatusCommand", "featurePolicyStatusSettle", "featurePolicyStatus",
+    "preparedFinalizerSettle", "featurePolicySeed", "featurePolicyStatusCommand",
+    "featurePolicyStatusSettle", "featurePolicyStatus",
     "chocolateyVersionCommand", "chocolateyVersionSettle",
     "chocolateyVersion", "synchroX64", "synchroX64Settle", "synchroX86",
     "synchroX86Settle", "smokeInstall", "smokeInstallSettle", "smokeUninstall",
@@ -729,20 +728,20 @@ expected_finalizer_evidence = (
     b"[cfw] stage=prepared-finalizer-complete\n"
 )
 checks = {
-    "wineIdentity": values[22] == 0 and values[23] == 0 and os.environ["CFW_OBSERVED_WINE_VERSION"] == os.environ["CFW_EXPECTED_WINE_VERSION"],
+    "wineIdentity": values[21] == 0 and values[22] == 0 and os.environ["CFW_OBSERVED_WINE_VERSION"] == os.environ["CFW_EXPECTED_WINE_VERSION"],
     "installer": values[0] == 0 and values[1] == 0,
-    "prePwshPolicy": all(value == 0 for value in values[24:33]),
+    "prePwshPolicy": all(value == 0 for value in values[23:32]),
     "pathConversions": all(
         codes["command"] == 0 and codes["settle"] == 0
         for codes in winepath_return_codes.values()
     ),
     "pwsh": values[2] == 0 and values[3] == 0 and observed_powershell == os.environ["CFW_EXPECTED_POWERSHELL_VERSION"] and "pwsh.txt" in marker_hashes and "pwsh-evidence.txt" in marker_hashes and markers[6].read_bytes() == expected_pwsh_evidence,
     "preparedFinalizer": values[4] == 0 and values[5] == 0 and "prepared-finalizer.txt" in marker_hashes and markers[1].read_bytes() == expected_finalizer_evidence,
-    "featurePolicy": all(value == 0 for value in values[6:11]),
-    "chocolatey": values[11] == 0 and values[12] == 0 and values[13] == 0 and os.environ["CFW_OBSERVED_CHOCOLATEY_VERSION"] == os.environ["CFW_EXPECTED_CHOCOLATEY_VERSION"],
-    "synchroX64": values[14] == 0 and values[15] == 0 and "synchro-x64.txt" in marker_hashes,
-    "synchroX86": values[16] == 0 and values[17] == 0 and "synchro-x86.txt" in marker_hashes,
-    "chocolateyLifecycle": values[18] == 0 and values[19] == 0 and values[20] == 0 and values[21] == 0 and "chocolatey-install.txt" in marker_hashes and "chocolatey-uninstall.txt" in marker_hashes,
+    "featurePolicy": all(value == 0 for value in values[6:10]),
+    "chocolatey": values[10] == 0 and values[11] == 0 and values[12] == 0 and os.environ["CFW_OBSERVED_CHOCOLATEY_VERSION"] == os.environ["CFW_EXPECTED_CHOCOLATEY_VERSION"],
+    "synchroX64": values[13] == 0 and values[14] == 0 and "synchro-x64.txt" in marker_hashes,
+    "synchroX86": values[15] == 0 and values[16] == 0 and "synchro-x86.txt" in marker_hashes,
+    "chocolateyLifecycle": values[17] == 0 and values[18] == 0 and values[19] == 0 and values[20] == 0 and "chocolatey-install.txt" in marker_hashes and "chocolatey-uninstall.txt" in marker_hashes,
 }
 record = {
     "schemaVersion": "cfw.runtime-build/v2",
