@@ -65,6 +65,7 @@ $applicationProfileRoot = Join-Path $env:ProgramData 'Chocolatey-for-wine\applic
 New-Item -ItemType Directory -Force -Path $profileRoot, $applicationProfileRoot | Out-Null
 
 $requiredFragments = @(
+    '10-runtime-contract.ps1',
     '20-chocolatey.ps1',
     '30-cfw-winetricks.ps1',
     '40-cfw-command-adapters.ps1'

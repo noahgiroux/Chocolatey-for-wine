@@ -51,6 +51,7 @@
   },
   "contributes": {
     "powershell.profile-fragments": [
+      "profile.d/10-runtime-contract.ps1",
       "profile.d/20-chocolatey.ps1",
       "profile.d/30-cfw-winetricks.ps1",
       "profile.d/40-cfw-command-adapters.ps1"
