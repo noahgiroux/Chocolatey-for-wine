@@ -4,13 +4,17 @@ on:
   push:
     paths:
       - 'compat/**'
+      - 'installer.c'
       - 'mainv1.c'
+      - 'tests/test_installer_contract.py'
       - 'tests/test_layer_contract.py'
       - '.github/workflows/layer-contract.yml'
   pull_request:
     paths:
       - 'compat/**'
+      - 'installer.c'
       - 'mainv1.c'
+      - 'tests/test_installer_contract.py'
       - 'tests/test_layer_contract.py'
       - '.github/workflows/layer-contract.yml'
 
@@ -27,8 +31,8 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Validate compatibility contract
-        run: python -m unittest tests.test_layer_contract
+      - name: Validate compatibility contracts
+        run: python -m unittest discover -s tests -v
 
   windows-compile:
     runs-on: ubuntu-latest
@@ -49,3 +53,7 @@ jobs:
         run: |
           x86_64-w64-mingw32-gcc -std=gnu11 -Wall -Wextra -municode \
             compat/container-finalizer.c -ladvapi32 -o /tmp/cfw-container-finalizer.exe
+
+      - name: Compile CFW installer
+        run: |
+          x86_64-w64-mingw32-gcc -std=gnu11 -Wall -Wextra -municode -c installer.c -o /tmp/cfw-installer.o

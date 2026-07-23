@@ -82,6 +82,40 @@ static DWORD run_process(LPCWSTR application, LPWSTR command_line, DWORD creatio
     return exit_code;
 }
 
+static DWORD run_process_bounded(
+    LPCWSTR application,
+    LPWSTR command_line,
+    DWORD creation_flags,
+    DWORD timeout_ms
+) {
+    STARTUPINFOW startup = {0};
+    PROCESS_INFORMATION process = {0};
+    DWORD exit_code = ERROR_GEN_FAILURE;
+    DWORD wait_result;
+
+    startup.cb = sizeof(startup);
+    if(!CreateProcessW(application, command_line, 0, 0, 0, creation_flags, 0, 0, &startup, &process))
+        return GetLastError();
+    wait_result = WaitForSingleObject(process.hProcess, timeout_ms);
+    if(wait_result == WAIT_OBJECT_0) {
+        if(!GetExitCodeProcess(process.hProcess, &exit_code))
+            exit_code = GetLastError();
+    }
+    else if(wait_result == WAIT_TIMEOUT) {
+        if(!TerminateProcess(process.hProcess, ERROR_TIMEOUT))
+            exit_code = GetLastError();
+        else {
+            WaitForSingleObject(process.hProcess, 10000);
+            exit_code = ERROR_TIMEOUT;
+        }
+    }
+    else
+        exit_code = GetLastError();
+    CloseHandle(process.hProcess);
+    CloseHandle(process.hThread);
+    return exit_code;
+}
+
 static DWORD download_file(LPCWSTR source, LPCWSTR destination) {
     HRESULT result;
     if(_wgetenv(L"CFW_OFFLINE")) return ERROR_FILE_NOT_FOUND;
@@ -98,7 +132,7 @@ static DWORD validate_canonical_choco(void) {
         : ERROR_SUCCESS;
 }
 
-static DWORD native_finalize_chocolatey(void) {
+static DWORD native_finalize_chocolatey(struct paths *p) {
     wchar_t raw_root[MAX_PATH] = L"";
     wchar_t raw_choco[MAX_PATH] = L"";
     wchar_t canonical_root[MAX_PATH] = L"";
@@ -108,10 +142,63 @@ static DWORD native_finalize_chocolatey(void) {
     wchar_t staged_choco[MAX_PATH] = L"";
     wchar_t machine_path[4096] = L"";
     wchar_t process_path[4096] = L"";
+    wchar_t mscoree_msu[MAX_PATH] = L"";
+    wchar_t mscoree_command[MAX_PATH * 2] = L"";
+    wchar_t system_mscoree[MAX_PATH] = L"";
+    wchar_t syswow64_mscoree[MAX_PATH] = L"";
     DWORD expanded, result, attributes, path_bytes = sizeof(machine_path), path_type = 0;
-    HKEY environment;
+    HKEY environment, dll_overrides;
 
     log_stage("[cfw] stage=native-finalizer-start\n");
+
+    /*
+     * The PowerShell finalizer installs the .NET shared shim update through
+     * wusa before selecting native mscoree. Container builds bypass that
+     * script, so perform the same prerequisite here and prove both loader
+     * architectures exist before publishing the override.
+     */
+    if(!append_wide(mscoree_msu, MAX_PATH, p->cache_dir) ||
+       !append_wide(
+           mscoree_msu,
+           MAX_PATH,
+           L"windows6.1-kb958488-v6001-x64_a137e4f328f01146dfa75d7b5a576090dee948dc.msu"
+       ))
+        return ERROR_INSUFFICIENT_BUFFER;
+    attributes = GetFileAttributesW(mscoree_msu);
+    if(attributes == INVALID_FILE_ATTRIBUTES) return GetLastError();
+    if((attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        return ERROR_INVALID_DATA;
+    if(!append_wide(mscoree_command, MAX_PATH * 2, L"wusa.exe \"") ||
+       !append_wide(mscoree_command, MAX_PATH * 2, mscoree_msu) ||
+       !append_wide(mscoree_command, MAX_PATH * 2, L"\" /quiet /norestart"))
+        return ERROR_INSUFFICIENT_BUFFER;
+    log_stage("[cfw] stage=mscoree-install-start\n");
+    result = run_process_bounded(NULL, mscoree_command, 0, 180000);
+    if(!install_succeeded(result) && result != ERROR_TIMEOUT) return result;
+    expanded = ExpandEnvironmentStringsW(
+        L"%SystemRoot%\\System32\\mscoree.dll",
+        system_mscoree,
+        MAX_PATH
+    );
+    if(expanded == 0) return GetLastError();
+    if(expanded > MAX_PATH) return ERROR_INSUFFICIENT_BUFFER;
+    expanded = ExpandEnvironmentStringsW(
+        L"%SystemRoot%\\SysWOW64\\mscoree.dll",
+        syswow64_mscoree,
+        MAX_PATH
+    );
+    if(expanded == 0) return GetLastError();
+    if(expanded > MAX_PATH) return ERROR_INSUFFICIENT_BUFFER;
+    attributes = GetFileAttributesW(system_mscoree);
+    if(attributes == INVALID_FILE_ATTRIBUTES) return GetLastError();
+    if((attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        return ERROR_INVALID_DATA;
+    attributes = GetFileAttributesW(syswow64_mscoree);
+    if(attributes == INVALID_FILE_ATTRIBUTES) return GetLastError();
+    if((attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        return ERROR_INVALID_DATA;
+    log_stage("[cfw] stage=mscoree-install-complete\n");
+
     expanded = ExpandEnvironmentStringsW(L"%ProgramData%\\tools\\chocolateyInstall", raw_root, MAX_PATH);
     if(expanded == 0) return GetLastError();
     if(expanded > MAX_PATH) return ERROR_INSUFFICIENT_BUFFER;
@@ -245,6 +332,38 @@ static DWORD native_finalize_chocolatey(void) {
     if(!SetEnvironmentVariableW(L"Path", process_path))
         return GetLastError();
 
+    /*
+     * The interactive PowerShell finalizer normally installs this override.
+     * Container builds intentionally bypass that script, but Microsoft .NET
+     * still requires Wine to load the native mscoree.dll. Without it, managed
+     * Chocolatey entry points fall back to Wine Mono and exit before Main.
+     */
+    result = RegCreateKeyExW(
+        HKEY_CURRENT_USER,
+        L"Software\\Wine\\DllOverrides",
+        0,
+        NULL,
+        REG_OPTION_NON_VOLATILE,
+        KEY_SET_VALUE,
+        NULL,
+        &dll_overrides,
+        NULL
+    );
+    if(result != ERROR_SUCCESS) return result;
+    {
+        const WCHAR native_override[] = L"native";
+        result = RegSetValueExW(
+            dll_overrides,
+            L"mscoree",
+            0,
+            REG_SZ,
+            (BYTE*)native_override,
+            sizeof(native_override)
+        );
+    }
+    RegCloseKey(dll_overrides);
+    if(result != ERROR_SUCCESS) return result;
+
     log_stage("[cfw] stage=native-finalizer-complete\n");
     return ERROR_SUCCESS;
 }
@@ -349,7 +468,7 @@ DWORD WINAPI pscore_install(void *ptr){
 
     if(_wgetenv(L"CFW_CONTAINER_BUILDER")) {
         if(!_wgetenv(L"CFW_OFFLINE")) return ERROR_ACCESS_DENIED;
-        return native_finalize_chocolatey();
+        return native_finalize_chocolatey(p);
     }
 
     if(

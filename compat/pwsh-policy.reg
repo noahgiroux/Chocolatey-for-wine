@@ -1,0 +1,13 @@
+REGEDIT4
+
+; Minimal producer policy required before the first prepared-runtime pwsh.exe proof.
+; These exact pwsh.exe overrides mirror CFW's maintained working policy. Post-PowerShell
+; compatibility belongs to finalize-runtime.ps1.
+
+[HKEY_CURRENT_USER\Software\Wine\AppDefaults\pwsh.exe]
+
+[HKEY_CURRENT_USER\Software\Wine\AppDefaults\pwsh.exe\DllOverrides]
+"amsi"=""
+"dwmapi"=""
+"mscoree"="builtin"
+"rpcrt4"="native,builtin"

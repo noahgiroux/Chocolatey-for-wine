@@ -81,6 +81,7 @@ REGEDIT4
 [HKEY_CURRENT_USER\Software\Wine\AppDefaults\pwsh.exe\DllOverrides]
 "amsi"=""
 "dwmapi"=""
+"mscoree"="builtin"
 "rpcrt4"="native,builtin"
 
 ;[HKEY_CURRENT_USER\Software\Wine\AppDefaults\MicrosoftEdgeUpdate.exe\DllOverrides]

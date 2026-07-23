@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "cfw.runtime-inputs/v1",
+  "runtimeId": "cfw-chocolatey-2.6.0-powershell-7.5.5-synchro-4.2.0",
+  "versions": {
+    "chocolatey": "2.6.0",
+    "powershell": "7.5.5",
+    "synchro": "4.2.0"
+  },
+  "downloads": {
+    "cfwRelease": {
+      "url": "https://github.com/noahgiroux/Chocolatey-for-wine/releases/download/v0.5c.755-noah.6/Chocolatey-for-wine.7z",
+      "sha256": "25c2e3cd544c7f83e9c196a5b8b0f98e020b4f5e24f19de30ea6ceec585d0792",
+      "filename": "Chocolatey-for-wine.7z"
+    },
+    "chocolatey": {
+      "url": "https://community.chocolatey.org/api/v2/package/chocolatey/2.6.0",
+      "sha256": "f13a2af9cd4ec2c9b58d81861bc95ad7151e3a871d8f758dffa72a996a3792d8",
+      "filename": "chocolatey.2.6.0.nupkg"
+    },
+    "powershell": {
+      "url": "https://github.com/PowerShell/PowerShell/releases/download/v7.5.5/PowerShell-7.5.5-win-x64.msi",
+      "sha256": "b2ac56b7639e2b259bb78bab077555d76f2a5eec6c516690d63de36bc1d6ca25",
+      "filename": "PowerShell-7.5.5-win-x64.msi"
+    },
+    "dotnet": {
+      "url": "https://download.visualstudio.microsoft.com/download/pr/7afca223-55d2-470a-8edc-6a1739ae3252/abd170b4b0ec15ad0222a809b761a036/ndp48-x86-x64-allos-enu.exe",
+      "sha256": "95889d6de3f2070c07790ad6cf2000d33d9a1bdfc6a381725ab82ab1c314fd53",
+      "filename": "ndp48-x86-x64-allos-enu.exe"
+    },
+    "mscoree": {
+      "url": "https://catalog.s.download.windowsupdate.com/msdownload/update/software/crup/2010/06/windows6.1-kb958488-v6001-x64_a137e4f328f01146dfa75d7b5a576090dee948dc.msu",
+      "sha256": "a5f4243ce8b07c9222284fd8ff6f7e742d934c57c89de9cab5d88c74402264e3",
+      "filename": "windows6.1-kb958488-v6001-x64_a137e4f328f01146dfa75d7b5a576090dee948dc.msu"
+    },
+    "d3d64": {
+      "url": "https://github.com/mozilla/fxc2/raw/master/dll/d3dcompiler_47.dll",
+      "sha256": "4432bbd1a390874f3f0a503d45cc48d346abc3a8c0213c289f4b615bf0ee84f3",
+      "filename": "d3dcompiler_47.dll"
+    },
+    "d3d32": {
+      "url": "https://github.com/mozilla/fxc2/raw/master/dll/d3dcompiler_47_32.dll",
+      "sha256": "2ad0d4987fc4624566b190e747c9d95038443956ed816abfd1e2d389b5ec0851",
+      "filename": "d3dcompiler_47_32.dll"
+    },
+    "conemu": {
+      "url": "https://github.com/Maximus5/ConEmu/releases/download/v23.07.24/ConEmuPack.230724.7z",
+      "sha256": "2a9b98ebecaede62665ef427b05b3a5ccdac7bd3202414fc0f4c10825b4f4ea2",
+      "filename": "ConEmuPack.230724.7z"
+    },
+    "sevenZipExtractor": {
+      "url": "https://globalcdn.nuget.org/packages/sevenzipextractor.1.0.19.nupkg",
+      "sha256": "c660063da7a343115272de59591597d8cc12d320957b1636a210524d6a67b95b",
+      "filename": "sevenzipextractor.1.0.19.nupkg"
+    },
+    "windowsPowerShell": {
+      "url": "https://catalog.s.download.windowsupdate.com/msdownload/update/software/updt/2009/11/windowsserver2003-kb968930-x64-eng_8ba702aa016e4c5aed581814647f4d55635eff5c.exe",
+      "sha256": "9f5d24517f860837daaac062e5bf7e6978ceb94e4e9e8567798df6777b56e4c8",
+      "filename": "windowsserver2003-kb968930-x64-eng_8ba702aa016e4c5aed581814647f4d55635eff5c.exe"
+    },
+    "synchro64": {
+      "url": "https://codeberg.org/Synchro/powershell-wrapper-for-wine/releases/download/v4.2.0/powershell64.exe",
+      "sha256": "b1d594bd44abc01007b9dd2adea5248f09906fa8d4c6cea7f36a4279e2de91e0",
+      "filename": "powershell64.exe"
+    },
+    "synchro32": {
+      "url": "https://codeberg.org/Synchro/powershell-wrapper-for-wine/releases/download/v4.2.0/powershell32.exe",
+      "sha256": "ca76d774273ffa37053545f8e4ad63c8914461828f1d1eef7a1915c9656fed4c",
+      "filename": "powershell32.exe"
+    }
+  },
+  "checkoutSources": {
+    "choc_install.ps1": {
+      "sha256": "a800db202548a52417a1e61c124ca0348ca948dc9e0db09122922d73efe46415"
+    }
+  }
+}
