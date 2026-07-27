@@ -22,8 +22,7 @@ if [[ "$unseen" -eq 0 ]]; then
     exit 0
 fi
 
-merge_base=$(git merge-base "$local_ref" "$upstream_ref")
-if git diff --quiet "${merge_base}^{tree}" "${upstream_ref}^{tree}"; then
+if git diff --quiet "${local_ref}^{tree}" "${upstream_ref}^{tree}"; then
     write_summary 'Unseen commits have an identical tree since merge-base; no source drift.'
     printf '%s\n' 'Unseen commits have an identical tree since merge-base; no source drift.'
     exit 0
