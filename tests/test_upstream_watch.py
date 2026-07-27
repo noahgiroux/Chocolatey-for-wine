@@ -79,6 +79,16 @@ class UpstreamWatchTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("need review", result.stderr)
 
+    def test_unseen_change_then_revert_fails(self) -> None:
+        repository, _ = self.create_repository()
+        subprocess.run(["git", "checkout", "-q", "canonical-upstream/main"], cwd=repository, check=True)
+        self.commit(repository, "upstream source change", "changed\n")
+        self.commit(repository, "upstream source revert", "base\n")
+        subprocess.run(["git", "checkout", "-q", "main"], cwd=repository, check=True)
+        result = self.run_check(repository)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("tree-changing unseen commit", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
