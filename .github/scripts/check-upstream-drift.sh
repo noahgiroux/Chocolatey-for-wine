@@ -30,15 +30,38 @@ mapfile -t tree_changing_commits < <(
     done < <(git rev-list --reverse "${local_ref}..${upstream_ref}")
 )
 
-# Preserve the existing content-equivalence allowance for genuinely divergent
-# tips, but do not let a change followed by a revert disappear when local is
-# still at the merge-base tree.
+# Preserve the content-equivalence allowance for genuinely divergent histories:
+# every unseen upstream source state must already be represented by a commit in
+# the local lineage. Matching only the final tips would hide transient upstream
+# mutations that were later reverted.
 merge_base=$(git merge-base "$local_ref" "$upstream_ref")
-if git diff --quiet "${local_ref}^{tree}" "${upstream_ref}^{tree}" && {
-    [[ "${#tree_changing_commits[@]}" -eq 0 ]] || ! git diff --quiet "${local_ref}^{tree}" "${merge_base}^{tree}";
-}; then
-    write_summary 'Unseen commits have an identical tree since merge-base; no source drift.'
-    printf '%s\n' 'Unseen commits have an identical tree since merge-base; no source drift.'
+mapfile -t local_trees < <(
+    {
+        git rev-parse "${merge_base}^{tree}"
+        git rev-list "${merge_base}..${local_ref}" | while read -r commit; do
+            git rev-parse "${commit}^{tree}"
+        done
+    } | sort -u
+)
+all_upstream_states_represented=true
+for commit in "${tree_changing_commits[@]}"; do
+    upstream_tree=$(git rev-parse "${commit}^{tree}")
+    represented=false
+    for local_tree in "${local_trees[@]}"; do
+        if [[ "$upstream_tree" == "$local_tree" ]]; then
+            represented=true
+            break
+        fi
+    done
+    if [[ "$represented" != true ]]; then
+        all_upstream_states_represented=false
+        break
+    fi
+done
+if git diff --quiet "${local_ref}^{tree}" "${upstream_ref}^{tree}" \
+    && [[ "$all_upstream_states_represented" == true ]]; then
+    write_summary 'Unseen commits reproduce only local source states; no source drift.'
+    printf '%s\n' 'Unseen commits reproduce only local source states; no source drift.'
     exit 0
 fi
 

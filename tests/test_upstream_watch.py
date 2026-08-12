@@ -53,7 +53,7 @@ class UpstreamWatchTests(unittest.TestCase):
         subprocess.run(["git", "update-ref", "refs/heads/canonical-upstream/main", upstream_tip], cwd=repository, check=True)
         result = self.run_check(repository)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("identical tree", result.stdout)
+        self.assertIn("reproduce only local source states", result.stdout)
 
     def test_equivalent_divergent_tips_succeed(self) -> None:
         repository, base = self.create_repository()
@@ -68,7 +68,7 @@ class UpstreamWatchTests(unittest.TestCase):
         subprocess.run(["git", "update-ref", "refs/heads/canonical-upstream/main", upstream_tip], cwd=repository, check=True)
         result = self.run_check(repository)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("identical tree", result.stdout)
+        self.assertIn("reproduce only local source states", result.stdout)
 
     def test_tree_change_in_unseen_commit_fails(self) -> None:
         repository, _ = self.create_repository()
@@ -78,6 +78,25 @@ class UpstreamWatchTests(unittest.TestCase):
         result = self.run_check(repository)
         self.assertEqual(result.returncode, 1)
         self.assertIn("need review", result.stderr)
+
+    def test_equivalent_divergent_tips_do_not_hide_change_then_revert(self) -> None:
+        repository, base = self.create_repository()
+        self.commit(repository, "local equivalent source change", "changed\n")
+        local_tip = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repository, text=True).strip()
+        subprocess.run(["git", "reset", "--hard", "-q", base], cwd=repository, check=True)
+        subprocess.run(["git", "checkout", "-q", "canonical-upstream/main"], cwd=repository, check=True)
+        self.commit(repository, "upstream equivalent source change", "changed\n")
+        self.commit(repository, "upstream transient source mutation", "transient\n")
+        self.commit(repository, "upstream reverts transient source mutation", "changed\n")
+        upstream_tip = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repository, text=True).strip()
+        subprocess.run(["git", "update-ref", "refs/heads/main", local_tip], cwd=repository, check=True)
+        subprocess.run(["git", "checkout", "-q", "main"], cwd=repository, check=True)
+        subprocess.run(["git", "update-ref", "refs/heads/canonical-upstream/main", upstream_tip], cwd=repository, check=True)
+
+        result = self.run_check(repository)
+
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("tree-changing unseen commit", result.stderr)
 
     def test_unseen_change_then_revert_fails(self) -> None:
         repository, _ = self.create_repository()
