@@ -283,7 +283,7 @@ class LayerContractTests(unittest.TestCase):
             source.index('wine wineboot --init'),
             source.index('export WINEDLLOVERRIDES=""'),
         )
-        self.assertEqual(inputs["downloads"]["powershell"]["filename"], "PowerShell-7.5.5-win-x64.msi")
+        self.assertEqual(inputs["downloads"]["powershell"]["filename"], "PowerShell-7.6.5-win-x64.msi")
         self.assertIn("powershell-wrapper-for-wine/releases/download/v4.2.0", inputs["downloads"]["synchro64"]["url"])
         self.assertEqual(inputs["downloads"]["synchro64"]["sha256"], "b1d594bd44abc01007b9dd2adea5248f09906fa8d4c6cea7f36a4279e2de91e0")
         self.assertEqual(inputs["downloads"]["synchro32"]["sha256"], "ca76d774273ffa37053545f8e4ad63c8914461828f1d1eef7a1915c9656fed4c")
@@ -518,7 +518,7 @@ class LayerContractTests(unittest.TestCase):
             **os.environ,
             "CFW_OBSERVED_WINE_VERSION": "wine-11.0",
             "CFW_EXPECTED_WINE_VERSION": "wine-11.0",
-            "CFW_EXPECTED_POWERSHELL_VERSION": "7.5.5",
+            "CFW_EXPECTED_POWERSHELL_VERSION": "7.6.5",
             "CFW_OBSERVED_CHOCOLATEY_VERSION": "2.6.0",
             "CFW_EXPECTED_CHOCOLATEY_VERSION": "2.6.0",
             "CFW_CONTRACT_SCHEMA": "cfw.compatibility-contract/v3",
@@ -531,16 +531,16 @@ class LayerContractTests(unittest.TestCase):
             "CFW_EXPECTED_SYNCHRO_VERSION": "4.2.0",
         }
         canonical = (
-            b"7.5.5",
+            b"7.6.5",
             b"[cfw] stage=prepared-finalizer-script-entry\n[cfw] stage=prepared-finalizer-complete\n",
             b"synchro-x64", b"synchro-x86", b"installed", b"uninstalled",
-            b"[cfw] pwsh-script-entry\n[cfw] pwsh=7.5.5\n",
+            b"[cfw] pwsh-script-entry\n[cfw] pwsh=7.6.5\n",
         )
         cases = {
             "canonical": (0, "passed", None),
             "missing-pwsh-evidence": (70, "failed", (6, None)),
             "duplicate-pwsh-evidence": (70, "failed", (6, canonical[6] + canonical[6])),
-            "fragmented-version-marker": (70, "failed", (0, b"7.\n5.5")),
+            "fragmented-version-marker": (70, "failed", (0, b"7.\n6.5")),
             "extra-finalizer-token": (
                 70,
                 "failed",
@@ -624,7 +624,7 @@ class LayerContractTests(unittest.TestCase):
         inputs = json.loads((ROOT / "compat" / "runtime-inputs.json").read_text(encoding="utf-8"))
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
 
-        self.assertEqual(inputs["versions"]["powershell"], "7.5.5")
+        self.assertEqual(inputs["versions"]["powershell"], "7.6.5")
         self.assertEqual(inputs["versions"]["chocolatey"], "2.6.0")
         self.assertEqual(inputs["versions"]["synchro"], "4.2.0")
         self.assertIn('CFW_RUNTIME_ID="$(runtime_value runtimeId)"', source)
@@ -670,6 +670,43 @@ class LayerContractTests(unittest.TestCase):
         inputs = json.loads(inputs_path.read_text(encoding="utf-8"))
 
         self.assertEqual(inputs["schemaVersion"], "cfw.runtime-inputs/v1")
+        upstream = inputs["upstreamRelease"]
+        self.assertEqual(upstream["repository"], "PietJankbal/Chocolatey-for-wine")
+        self.assertEqual(upstream["tag"], "v0.5a.765")
+        self.assertEqual(upstream["revision"], "71bf92916b8d259458017a583a37dfde330b241e")
+        self.assertEqual(
+            inputs["downloads"]["cfwRelease"],
+            {
+                "url": "https://github.com/PietJankbal/Chocolatey-for-wine/releases/download/v0.5a.765/Chocolatey-for-wine.7z",
+                "sha256": "aa38fff2c7ddcce756857b10ac3b8b0d3b603f82106498d1af3312a42d35da93",
+                "filename": "Chocolatey-for-wine.7z",
+                "installerFilename": "ChoCinstaller_0.5a.765.exe",
+            },
+        )
+        self.assertEqual(
+            inputs["downloads"]["powershell"],
+            {
+                "url": "https://github.com/PowerShell/PowerShell/releases/download/v7.6.5/PowerShell-7.6.5-win-x64.msi",
+                "sha256": "3a87c24e044ec792047d734c841917ee4323a535e25f645ae6c33141a35fca8d",
+                "filename": "PowerShell-7.6.5-win-x64.msi",
+            },
+        )
+        self.assertEqual(
+            upstream["selectedPorts"],
+            {
+                "installer.c": "WebView --disable_direct_composition=1 compatibility flag",
+                "choc_install.ps1": "version-agnostic PowerShell MSI cache discovery with exact-singleton validation",
+            },
+        )
+        self.assertEqual(
+            upstream["deferredPaths"],
+            [
+                "EXTRAS/wine_combase.7z",
+                "EXTRAS/wine_combase.patch",
+                "EXTRAS/wine_wintypes.patch",
+                "winetricks.ps1",
+            ],
+        )
         for name in (
             "cfwRelease",
             "chocolatey",
@@ -700,6 +737,14 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn('"installerSha256"', source)
         self.assertIn("verify_checkout_source choc_install.ps1", source)
         self.assertNotIn("verify_checkout_source winetricks.ps1", source)
+        self.assertIn('release_installer="$(input_value cfwRelease installerFilename)"', source)
+        self.assertIn(r'^ChoCinstaller_[0-9]\.[0-9][A-Za-z]\.([0-9])([0-9])([0-9])\.exe$', source)
+        self.assertIn('release_powershell_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"', source)
+        self.assertIn('[[ "$release_powershell_version" != "$CFW_EXPECTED_POWERSHELL_VERSION" ]]', source)
+        self.assertIn('[[ -f "$release_dir/$release_installer" ]]', source)
+        self.assertIn('cp -f "$compiled_installer" "$release_dir/$release_installer"', source)
+        self.assertIn('installer_win="$(winepath_to_windows cfw-installer "$release_dir/$release_installer")"', source)
+        self.assertNotIn("ChoCinstaller_0.5c.755.exe", source)
 
     def test_runtime_builder_requires_behavioral_proofs_and_manifest(self) -> None:
         source = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")

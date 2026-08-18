@@ -103,6 +103,9 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
         for stage in stages:
             self.assertIn(f'log_stage("[cfw] stage={stage}\\n")', INSTALLER)
 
+    def test_upstream_webview_disables_direct_composition(self):
+        self.assertIn("--disable_direct_composition=1", INSTALLER)
+
     def test_success_requires_canonical_chocolatey(self):
         self.assertIn(
             'L"%ProgramData%\\\\chocolatey\\\\bin\\\\choco.exe"',
@@ -137,10 +140,20 @@ class InstallerOrchestrationContractTests(unittest.TestCase):
         script = (ROOT / "choc_install.ps1").read_text(encoding="utf-8")
         self.assertIn("$ErrorActionPreference = 'Stop'", script[:500])
 
+    def test_saved_cache_discovers_one_versioned_powershell_msi(self):
+        script = (ROOT / "choc_install.ps1").read_text(encoding="utf-8")
+        self.assertNotIn("PowerShell-7.5.5-win-x64.msi", script)
+        self.assertIn("-Filter 'PowerShell-*-win-x64.msi'", script)
+        self.assertIn("$powerShellCacheFiles.Count -ne 1", script)
+        self.assertIn("$powerShellCacheFiles[0].Name", script)
+
     def test_release_workflow_validates_contracts_on_fix_branches(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
         self.assertIn("- 'fix/**'", workflow)
         self.assertIn("python3 -m unittest discover -s tests", workflow)
+        self.assertIn("default: '0.5a.765'", workflow)
+        self.assertIn('ver="0.5a.765"', workflow)
+        self.assertNotIn("0.5c.755", workflow)
         self.assertIn('ver="${ver%%-*}"', workflow)
         self.assertIn("contents: write", workflow)
         self.assertIn("gh release create", workflow)

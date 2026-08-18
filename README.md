@@ -22,6 +22,26 @@ every application build.
 
 The machine-readable contract is [`compat/contract.json`](compat/contract.json).
 
+## Integrated canonical upstream
+
+This branch selectively integrates canonical upstream release `v0.5a.765` at
+commit `71bf92916b8d259458017a583a37dfde330b241e`. Its release archive and the
+PowerShell 7.6.5 MSI are checksum-pinned in
+[`compat/runtime-inputs.json`](compat/runtime-inputs.json). Chocolatey remains at
+2.6.0, which was already the prepared-runtime version in this fork. The small
+WebView direct-composition workaround and version-agnostic, exact-singleton
+PowerShell MSI cache discovery are ported into the locally hardened installer.
+
+The release's broad winetricks changes and Wine `combase`/`wintypes` patch assets
+are intentionally deferred; the upstream bootstrap reorder is also not adopted.
+Those changes include mutable downloads, fixed byte-range assumptions, and opaque
+or source/archive-skewed binaries that require separate
+input pinning and Wine 11 rebuild proofs. The local fail-closed process
+orchestration, offline cache enforcement, runtime evidence, and producer/consumer
+boundary remain authoritative. Selective integration does not by itself claim a
+new prepared runtime is published; that requires the complete Wine 11 behavioral
+build and immutable tag workflow.
+
 ## Prepared runtime artifact
 
 `compat/build-runtime.sh` builds a reusable prefix foundation from verified
@@ -119,7 +139,7 @@ For the inherited desktop environment:
 3. Run the included installer:
 
 ```bash
-wine ChoCinstaller_0.5c.755.exe
+wine ChoCinstaller_0.5a.765.exe
 ```
 
 Optional arguments:

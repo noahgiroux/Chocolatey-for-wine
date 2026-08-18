@@ -319,8 +319,20 @@ fetch_input cfwRelease "$release_archive"
 rm -rf "$release_root"
 mkdir -p "$release_root"
 7z x -y "$release_archive" "-o$release_root" >"$logs/release-extract.log"
-[[ -f "$release_dir/ChoCinstaller_0.5c.755.exe" ]]
-cp -f "$compiled_installer" "$release_dir/ChoCinstaller_0.5c.755.exe"
+release_installer="$(input_value cfwRelease installerFilename)"
+if [[ ! "$release_installer" =~ ^ChoCinstaller_[0-9]\.[0-9][A-Za-z]\.([0-9])([0-9])([0-9])\.exe$ ]]; then
+  printf '[cfw] release installer filename is incompatible with the installer version parser: %s\n' \
+    "$release_installer" >&2
+  exit 64
+fi
+release_powershell_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+if [[ "$release_powershell_version" != "$CFW_EXPECTED_POWERSHELL_VERSION" ]]; then
+  printf '[cfw] release installer PowerShell version mismatch: filename=%s locked=%s\n' \
+    "$release_powershell_version" "$CFW_EXPECTED_POWERSHELL_VERSION" >&2
+  exit 64
+fi
+[[ -f "$release_dir/$release_installer" ]]
+cp -f "$compiled_installer" "$release_dir/$release_installer"
 printf '%s  %s\n' "$CFW_INSTALLER_SHA256" "$compiled_installer" >"$logs/installer-under-test.sha256"
 verify_checkout_source choc_install.ps1 "$repo_root/choc_install.ps1"
 cp -f "$repo_root/choc_install.ps1" "$release_dir/choc_install.ps1"
@@ -378,7 +390,7 @@ export CFW_CACHE="$cfw_cache_win"
 export CFW_OFFLINE=1
 export CFW_CONTAINER_BUILDER=1
 export CFW_EXTERNAL_POWERSHELL=1
-installer_win="$(winepath_to_windows cfw-installer "$release_dir/ChoCinstaller_0.5c.755.exe")"
+installer_win="$(winepath_to_windows cfw-installer "$release_dir/$release_installer")"
 trap - ERR
 set +e
 timeout --kill-after=30s "${CFW_INSTALL_TIMEOUT:-7200s}" wine "$installer_win" /s /q >"$logs/installer.log" 2>&1

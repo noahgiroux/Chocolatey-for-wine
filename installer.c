@@ -457,7 +457,7 @@ DWORD WINAPI pscore_install(void *ptr){
         }
     }
 
-    WCHAR webview[] = L"--disable-dwm-composition --disable-gpu-sandbox --disable-d3d11  --disable-sandbox --use-angle=d3d9 --disable-gpu";
+    WCHAR webview[] = L"--disable-dwm-composition --disable_direct_composition=1 --disable-gpu-sandbox --disable-d3d11  --disable-sandbox --use-angle=d3d9 --disable-gpu";
     if(RegCreateKeyExW(HKEY_CURRENT_USER, L"Environment", 0, NULL, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, NULL, &hKey, NULL) != ERROR_SUCCESS)
         return ERROR_CANTOPEN;
     exit_code = RegSetValueExW(hKey, L"PS7", 0, REG_SZ, (BYTE*)pwsh_pathW, sizeof(WCHAR)*wcslen(pwsh_pathW)+1);

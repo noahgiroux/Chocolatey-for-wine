@@ -1,15 +1,14 @@
 name: Build Release
 
-# The default is explicitly set to 0.5c.755 due to char limit
-# See installer.c line 191ish
+# The default follows the integrated canonical upstream installer filename contract.
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version (e.g. 0.5c.755)'
+        description: 'Version (e.g. 0.5a.765)'
         required: false
-        default: '0.5c.755'
+        default: '0.5a.765'
   push:
     branches:
       - 'fix/**'
@@ -43,7 +42,7 @@ jobs:
           elif [ "${{ github.ref_type }}" = "tag" ]; then
             ver="${GITHUB_REF_NAME#v}"
           else
-            ver="0.5c.755"
+            ver="0.5a.765"
           fi
           ver="${ver#v}"
           ver="${ver%%-*}"
