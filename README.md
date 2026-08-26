@@ -44,6 +44,16 @@ build and immutable tag workflow.
 
 ## Prepared runtime artifact
 
+The prepared prefix is produced inside the same universal Cage image that will
+run it. The producer workflow resolves the Wine image to an immutable GHCR
+digest, requires the LinuxServer `/init` entrypoint and
+`cage.selkies-wayland/v1` session label, and submits the finite build through
+Cage's native s6 task channel. The task runs as `abc` with the GitHub runner's
+`PUID`/`PGID`; it does not override `/init` or migrate a prefix produced by a
+different image. Manual requalification accepts an exact
+`ghcr.io/pelagians/cage-wine@sha256:...` input so a candidate can be proven
+before its mutable version tag advances.
+
 `compat/build-runtime.sh` builds a reusable prefix foundation from verified
 inputs. It requires all of the following before producing an artifact:
 
@@ -74,8 +84,9 @@ cfw-runtime-manifest-wine-<version>.json
 logs/
 ```
 
-`runtime.json` records the exact Wine image digest and observed Wine version,
-CFW source revision, compatibility-contract digest, lock-file digest, installer digest, runtime proof return codes, and sentinel
+`runtime.json` records the exact Wine image digest, observed Wine version, and
+producer session contract, plus the CFW source revision, compatibility-contract
+digest, lock-file digest, installer digest, runtime proof return codes, and sentinel
 hashes. The detached manifest binds that evidence to the archive name, digest,
 and byte size, the contract-authoritative behavioral proof inventory, and
 producer-declared consumer interfaces (including the post-bootstrap runtime
