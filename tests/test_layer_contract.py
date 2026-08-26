@@ -674,6 +674,10 @@ class LayerContractTests(unittest.TestCase):
         upstream = inputs["upstreamRelease"]
         self.assertEqual(upstream["repository"], "PietJankbal/Chocolatey-for-wine")
         self.assertEqual(upstream["tag"], "v0.5c.765")
+        self.assertEqual(
+            inputs["producerWineImage"],
+            "ghcr.io/pelagians/cage-wine@sha256:7ad192e00a251523f3a071d3ffa422789b010c359d18cd45227d9f89165f6b92",
+        )
         self.assertEqual(upstream["revision"], "71bf92916b8d259458017a583a37dfde330b241e")
         self.assertEqual(
             inputs["downloads"]["cfwRelease"],
@@ -1006,6 +1010,8 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("wine_image:", workflow)
         self.assertIn("Immutable universal Cage Wine image", workflow)
         self.assertIn("inputs.wine_image", workflow)
+        self.assertIn("producerWineImage", workflow)
+        self.assertIn("needs.contract.outputs.wine_image", workflow)
         self.assertIn("ghcr.io/pelagians/cage-wine@sha256:", workflow)
         self.assertIn("Reject non-digest manual image", workflow)
         self.assertNotIn("docker run --privileged", workflow)
