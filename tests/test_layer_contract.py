@@ -447,7 +447,7 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn('sudo rm -rf -- "$out"', workflow)
         self.assertLess(
             workflow.index('sudo rm -rf -- "$out"'),
-            workflow.index('docker run --rm'),
+            workflow.index('docker run --name "$container_name"'),
         )
         self.assertIn('[[ ! -L "$output_root" && ! -L "$logs" ]]', source)
         self.assertIn("No output was attributed to this workflow attempt.", workflow)
@@ -525,6 +525,7 @@ class LayerContractTests(unittest.TestCase):
             "CFW_CONTRACT_SHA256": "0" * 64,
             "CFW_RUNTIME_ID": "cfw-wine-11.0",
             "CFW_WINE_IMAGE": "ghcr.io/pelagians/cage-wine@sha256:" + "1" * 64,
+            "CFW_WINE_SESSION_CONTRACT": "cage.selkies-wayland/v1",
             "CFW_SOURCE_REVISION": "2" * 40,
             "CFW_INSTALLER_SHA256": "3" * 64,
             "CFW_RUNTIME_INPUTS_SHA256": "4" * 64,
@@ -972,6 +973,69 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("git show -s --format=%ct", workflow)
         self.assertIn("release already exists", workflow)
         self.assertNotIn("--clobber", workflow)
+
+    def test_runtime_workflow_executes_through_universal_selkies_init(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "build-container-runtime.yml").read_text(encoding="utf-8")
+
+        self.assertIn("Validate universal Cage runtime contract", workflow)
+        self.assertIn("cage.selkies-wayland/v1", workflow)
+        self.assertIn("/init", workflow)
+        self.assertIn("CAGE_BUILD_SCRIPT_B64", workflow)
+        self.assertIn('PUID="$(id -u)"', workflow)
+        self.assertIn('PGID="$(id -g)"', workflow)
+        self.assertIn('-e PUID="$PUID"', workflow)
+        self.assertIn('-e PGID="$PGID"', workflow)
+        self.assertIn('-e CAGE_BUILD_SCRIPT_B64="$build_script_b64"', workflow)
+        self.assertIn('"${{ steps.image.outputs.image }}"', workflow)
+        self.assertNotIn(
+            '"${{ steps.image.outputs.image }}" \
+            /bin/bash /src/compat/build-runtime.sh /out',
+            workflow,
+        )
+
+    def test_runtime_workflow_keeps_public_candidate_proof_credentialless(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "build-container-runtime.yml").read_text(encoding="utf-8")
+
+        self.assertNotIn("packages: read", workflow)
+        self.assertNotIn("docker/login-action", workflow)
+        self.assertGreaterEqual(workflow.count("persist-credentials: false"), 3)
+
+    def test_manual_requalification_accepts_only_an_exact_candidate_digest(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "build-container-runtime.yml").read_text(encoding="utf-8")
+
+        self.assertIn("wine_image:", workflow)
+        self.assertIn("Immutable universal Cage Wine image", workflow)
+        self.assertIn("inputs.wine_image", workflow)
+        self.assertIn("ghcr.io/pelagians/cage-wine@sha256:", workflow)
+        self.assertIn("Reject non-digest manual image", workflow)
+        self.assertNotIn("docker run --privileged", workflow)
+
+    def test_prepared_runtime_binds_universal_session_contract(self) -> None:
+        contract = json.loads((ROOT / "compat" / "contract.json").read_text(encoding="utf-8"))
+        builder = (ROOT / "compat" / "build-runtime.sh").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "build-container-runtime.yml").read_text(encoding="utf-8")
+
+        self.assertEqual(contract["build"]["producerSessionContract"], "cage.selkies-wayland/v1")
+        self.assertIn("CFW_WINE_SESSION_CONTRACT", builder)
+        self.assertIn('"sessionContract": os.environ["CFW_WINE_SESSION_CONTRACT"]', builder)
+        self.assertIn('"sessionContract": evidence["sessionContract"]', builder)
+        self.assertIn("CFW_WINE_SESSION_CONTRACT=cage.selkies-wayland/v1", workflow)
+        self.assertIn('runtime["sessionContract"] == manifest["sessionContract"]', workflow)
+        self.assertIn('manifest["sessionContract"] == contract["build"]["producerSessionContract"]', workflow)
+
+    def test_runtime_task_is_finite_unprivileged_and_drops_selkies_preloads(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "build-container-runtime.yml").read_text(encoding="utf-8")
+
+        self.assertIn("unset LD_PRELOAD", workflow)
+        self.assertIn("export WINEPREFIX=/out/prefix", workflow)
+        self.assertIn("export CFW_BUILD_CACHE=/out/cache", workflow)
+        self.assertNotIn("-e WINEPREFIX=/out/prefix", workflow)
+        self.assertNotIn("-e CFW_BUILD_CACHE=/out/cache", workflow)
+        self.assertIn("exec /bin/bash /src/compat/build-runtime.sh /out", workflow)
+        self.assertIn("container-exit-code", workflow)
+        self.assertIn("task-exit-code", workflow)
+        self.assertIn("docker wait", workflow)
+        self.assertNotIn("--entrypoint", workflow)
 
     def test_runtime_workflow_targets_contract_wine_inventory(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "build-container-runtime.yml").read_text(encoding="utf-8")

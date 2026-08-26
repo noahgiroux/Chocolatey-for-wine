@@ -21,10 +21,14 @@ on:
       - 'winetricks.ps1'
       - '.github/workflows/build-container-runtime.yml'
   workflow_dispatch:
+    inputs:
+      wine_image:
+        description: Immutable universal Cage Wine image (ghcr.io/pelagians/cage-wine@sha256:...)
+        required: false
+        type: string
 
 permissions:
   contents: read
-  packages: read
 
 concurrency:
   group: cfw-runtime-${{ github.ref }}
@@ -38,6 +42,8 @@ jobs:
       wines: ${{ steps.contract.outputs.wines }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Read Wine candidates
         id: contract
         shell: bash
@@ -66,11 +72,12 @@ jobs:
       matrix:
         wine: ${{ fromJSON(needs.contract.outputs.wines) }}
     env:
-      IMAGE: ghcr.io/pelagians/cage-wine:${{ matrix.wine }}
+      IMAGE: ${{ inputs.wine_image || format('ghcr.io/pelagians/cage-wine:{0}', matrix.wine) }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Compile CFW installer under test
         shell: bash
@@ -87,6 +94,16 @@ jobs:
             -o compat/ChoCinstaller-under-test.exe
           test -s compat/ChoCinstaller-under-test.exe
 
+      - name: Reject non-digest manual image
+        if: github.event_name == 'workflow_dispatch' && inputs.wine_image != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE" =~ ^ghcr\.io/pelagians/cage-wine@sha256:[0-9a-f]{64}$ ]] || {
+            echo "::error title=Invalid manual Wine image::wine_image must be an exact ghcr.io/pelagians/cage-wine@sha256 digest"
+            exit 64
+          }
+
       - name: Pull and resolve Cage Wine runtime
         id: image
         shell: bash
@@ -94,8 +111,24 @@ jobs:
           set -euo pipefail
           docker pull "$IMAGE"
           image_ref="$(docker image inspect "$IMAGE" --format '{{index .RepoDigests 0}}')"
-          test -n "$image_ref"
+          [[ "$image_ref" =~ ^ghcr\.io/pelagians/cage-wine@sha256:[0-9a-f]{64}$ ]]
           printf 'image=%s\n' "$image_ref" >> "$GITHUB_OUTPUT"
+
+      - name: Validate universal Cage runtime contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_ref='${{ steps.image.outputs.image }}'
+          entrypoint="$(docker image inspect "$image_ref" --format '{{json .Config.Entrypoint}}')"
+          session_contract="$(docker image inspect "$image_ref" --format '{{index .Config.Labels "org.pelagian.cage.session-contract"}}')"
+          if [ "$entrypoint" != '["/init"]' ]; then
+            echo "::error title=Invalid Cage runtime entrypoint::expected=[\"/init\"] actual=$entrypoint image=$image_ref"
+            exit 69
+          fi
+          if [ "$session_contract" != 'cage.selkies-wayland/v1' ]; then
+            echo "::error title=Invalid Cage session contract::expected=cage.selkies-wayland/v1 actual=$session_contract image=$image_ref"
+            exit 69
+          fi
 
       - name: Build CFW runtime prefix
         id: build
@@ -109,11 +142,30 @@ jobs:
           printf '%s\n' "$current_run_token" > "$out/.cfw-current-run"
           cp -f compat/ChoCinstaller-under-test.exe "$out/cfw-installer-under-test-wine-${{ matrix.wine }}.exe"
           source_date_epoch="$(git show -s --format=%ct "$GITHUB_SHA")"
+          PUID="$(id -u)"
+          PGID="$(id -g)"
+          build_script="$(cat <<'TASK'
+          #!/usr/bin/env bash
+          set -Eeuo pipefail
+          # Selkies preloads 64-bit gamepad/udev shims for the desktop. They are
+          # not CFW build inputs and must not leak into 32-bit Wine children.
+          unset LD_PRELOAD
+          export WINEPREFIX=/out/prefix
+          export CFW_BUILD_CACHE=/out/cache
+          exec /bin/bash /src/compat/build-runtime.sh /out
+          TASK
+          )"
+          build_script_b64="$(printf '%s' "$build_script" | base64 -w0)"
+          container_name="cfw-runtime-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.wine }}"
+          cleanup() { docker rm -f "$container_name" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
           set +e
-          docker run --rm \
-            -e WINEPREFIX=/out/prefix \
-            -e CFW_BUILD_CACHE=/out/cache \
+          docker run --name "$container_name" \
+            -e PUID="$PUID" \
+            -e PGID="$PGID" \
+            -e CAGE_BUILD_SCRIPT_B64="$build_script_b64" \
             -e CFW_WINE_IMAGE='${{ steps.image.outputs.image }}' \
+            -e CFW_WINE_SESSION_CONTRACT=cage.selkies-wayland/v1 \
             -e CFW_EXPECTED_WINE_VERSION='wine-${{ matrix.wine }}' \
             -e CFW_SOURCE_REVISION='${{ github.sha }}' \
             -e SOURCE_DATE_EPOCH="$source_date_epoch" \
@@ -124,11 +176,24 @@ jobs:
             -v "$PWD:/src:ro" \
             -v "$out:/out" \
             "${{ steps.image.outputs.image }}" \
-            /bin/bash /src/compat/build-runtime.sh /out \
             2>&1 | tee "$out/workflow.log"
-          rc=${PIPESTATUS[0]}
+          docker_rc=${PIPESTATUS[0]}
+          init_rc="$(docker wait "$container_name")"
+          docker cp "$container_name:/opt/cage/logs/container-exit-code" "$out/container-exit-code" 2>/dev/null
+          receipt_rc=$?
+          docker cp "$container_name:/var/lib/cage/state/task-exit-code" "$out/task-exit-code" 2>/dev/null
+          state_rc=$?
           set -e
-          sudo chown -R "$(id -u):$(id -g)" "$out" || true
+          rc=70
+          if [ "$receipt_rc" -eq 0 ] && [ "$state_rc" -eq 0 ] && \
+             [[ "$(cat "$out/container-exit-code")" =~ ^[0-9]+$ ]] && \
+             [ "$(cat "$out/container-exit-code")" = "$(cat "$out/task-exit-code")" ]; then
+            rc="$(cat "$out/container-exit-code")"
+          else
+            echo "[cfw] missing or inconsistent universal task exit receipts (docker=$docker_rc init=$init_rc receipt=$receipt_rc state=$state_rc)" >&2
+          fi
+          cleanup
+          trap - EXIT
           echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
           exit "$rc"
 
@@ -247,6 +312,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Download proven runtime artifacts
         uses: actions/download-artifact@v4
@@ -330,6 +397,8 @@ jobs:
           assert re.fullmatch(r"[0-9a-f]{64}", runtime["runtimeInputsSha256"])
           assert runtime["wine"] == manifest["wine"]
           assert runtime["wine"]["version"] == f"wine-{wine}"
+          assert runtime["sessionContract"] == manifest["sessionContract"]
+          assert manifest["sessionContract"] == contract["build"]["producerSessionContract"]
           assert manifest["requiredProofs"] == contract["build"]["requiredProofs"]
           assert set(runtime["checks"]) == set(contract["build"]["requiredProofs"])
           assert manifest["interfaces"] == contract["artifact"]["interfaces"]

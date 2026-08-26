@@ -16,7 +16,7 @@ The first prepared-runtime implementation added contracts, evidence, and release
 
 CFW is the sole owner of its prepared Wine compatibility runtime:
 
-1. CFW initializes a fresh prefix from digest-pinned Wine and locked inputs.
+1. CFW initializes a fresh prefix from digest-pinned Wine and locked inputs. For universal Cage images, CFW retains LinuxServer `/init`, validates `cage.selkies-wayland/v1`, and enters through the image's native finite s6 task channel as `abc`; it never imports a prefix made by another image for consumer-side migration.
 2. A bounded native bootstrap installs prerequisites that must exist before PowerShell can execute.
 3. CFW applies one source-controlled pre-PowerShell Wine policy, including its maintained `pwsh.exe` RPC override; this policy is producer-owned compatibility behavior, not a Cage reconstruction.
 4. CFW launches direct `pwsh.exe` boundaries through Wine 11's `wineconsole <command>` interface so PowerShell receives its required `CONOUT$`; the behavioral proof must persist an entry token, exact version, and filesystem sentinel.
@@ -40,13 +40,15 @@ A process exit code alone is not proof. Each executable boundary requires observ
 - **Reconstruct Windows compatibility in Cage:** rejected because it violates ownership and makes every application build repeat platform servicing.
 - **Freeze the consumer interface before a real artifact exists:** rejected because static schemas have not yet demonstrated a valid runtime.
 - **Treat a skipped Cage smoke workflow as success:** rejected because it proves no producer/consumer behavior.
+- **Upgrade an old prepared prefix in a new consumer image:** rejected because the prefix is producer-owned and digest-bound; a new image must produce and prove a fresh artifact directly.
+- **Override the universal image entrypoint:** rejected because bypassing `/init` and s6 does not prove the shipped lifecycle and can race the Selkies session.
 
 ## Acceptance gates
 
 Phase 1 is complete only when:
 
 - at least one supported Wine runtime passes every CFW behavioral proof;
-- the immutable release assets exist and independently bind the checked-out contract SHA, source SHA, installer SHA, input lock SHA, producer image digest, detached/archived evidence identity, archive hash and size, and declared executable interfaces;
+- the immutable release assets exist and independently bind the checked-out contract SHA, source SHA, installer SHA, input lock SHA, producer image digest and session contract, detached/archived evidence identity, archive hash and size, and declared executable interfaces;
 - a clean Cage build verifies those bindings, seeds the prefix, installs and uninstalls the local smoke package, and does not skip.
 
 Wine 11 is the first target. Wine 9 and 10 are added only after Wine 11 passes.

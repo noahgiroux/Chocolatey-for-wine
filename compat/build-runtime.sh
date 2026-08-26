@@ -62,6 +62,7 @@ CFW_CONTRACT_SHA256="$(sha256sum "$compat_contract" | awk '{print $1}')"
 CFW_INSTALLER_SHA256="$(sha256sum "$compiled_installer" | awk '{print $1}')"
 CFW_SOURCE_REVISION="${CFW_SOURCE_REVISION:?CFW_SOURCE_REVISION must be the exact source commit}"
 CFW_WINE_IMAGE="${CFW_WINE_IMAGE:?CFW_WINE_IMAGE must be the digest-pinned Wine producer image}"
+CFW_WINE_SESSION_CONTRACT="${CFW_WINE_SESSION_CONTRACT:?CFW_WINE_SESSION_CONTRACT must bind the producer session contract}"
 CFW_EXPECTED_WINE_VERSION="${CFW_EXPECTED_WINE_VERSION:?CFW_EXPECTED_WINE_VERSION must bind the Wine artifact identity}"
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:?SOURCE_DATE_EPOCH must identify the exact source revision time}"
 if [[ ! "$CFW_SOURCE_REVISION" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]; then
@@ -180,12 +181,22 @@ if not isinstance(candidates, list) or len(candidates) != 1:
 value = candidates[0]
 if not isinstance(value, str) or not re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}", value):
     raise SystemExit("invalid compatibility contract Wine candidate")
+session_contract = contract["build"].get("producerSessionContract")
+if session_contract != "cage.selkies-wayland/v1":
+    raise SystemExit("invalid producer session contract")
 print(contract["schemaVersion"])
 print(value)
+print(session_contract)
 PY2
 )
 CFW_CONTRACT_SCHEMA="${contract_identity[0]:?missing compatibility contract schema}"
 CFW_CONTRACT_WINE_VERSION="${contract_identity[1]:?missing compatibility contract Wine candidate}"
+CFW_CONTRACT_SESSION_CONTRACT="${contract_identity[2]:?missing producer session contract}"
+if [[ "$CFW_WINE_SESSION_CONTRACT" != "$CFW_CONTRACT_SESSION_CONTRACT" ]]; then
+  printf '[cfw] producer session contract mismatch: expected=%s selected=%s\n' \
+    "$CFW_CONTRACT_SESSION_CONTRACT" "$CFW_WINE_SESSION_CONTRACT" >&2
+  exit 64
+fi
 if [[ "$CFW_EXPECTED_WINE_VERSION" != "wine-$CFW_CONTRACT_WINE_VERSION" ]]; then
   printf '[cfw] Wine selection does not match compatibility contract: expected=wine-%s selected=%s\n' \
     "$CFW_CONTRACT_WINE_VERSION" "$CFW_EXPECTED_WINE_VERSION" >&2
@@ -194,7 +205,7 @@ fi
 CFW_EXPECTED_POWERSHELL_VERSION="$(runtime_version powershell)"
 CFW_EXPECTED_CHOCOLATEY_VERSION="$(runtime_version chocolatey)"
 CFW_EXPECTED_SYNCHRO_VERSION="$(runtime_version synchro)"
-export CFW_RUNTIME_ID CFW_CONTRACT_SCHEMA CFW_EXPECTED_WINE_VERSION CFW_EXPECTED_POWERSHELL_VERSION CFW_EXPECTED_CHOCOLATEY_VERSION CFW_EXPECTED_SYNCHRO_VERSION
+export CFW_RUNTIME_ID CFW_CONTRACT_SCHEMA CFW_WINE_SESSION_CONTRACT CFW_EXPECTED_WINE_VERSION CFW_EXPECTED_POWERSHELL_VERSION CFW_EXPECTED_CHOCOLATEY_VERSION CFW_EXPECTED_SYNCHRO_VERSION
 
 checkout_source_sha256() {
   local source_name="$1"
@@ -904,6 +915,7 @@ record = {
     "runtimeId": os.environ["CFW_RUNTIME_ID"],
     "status": "passed" if all(checks.values()) else "failed",
     "wine": {"image": os.environ["CFW_WINE_IMAGE"], "version": os.environ["CFW_OBSERVED_WINE_VERSION"], "architecture": "win64"},
+    "sessionContract": os.environ["CFW_WINE_SESSION_CONTRACT"],
     "sourceRevision": os.environ["CFW_SOURCE_REVISION"],
     "installerSha256": os.environ["CFW_INSTALLER_SHA256"],
     "runtimeInputsSha256": os.environ["CFW_RUNTIME_INPUTS_SHA256"],
@@ -965,6 +977,7 @@ manifest = {
     "installerSha256": evidence["installerSha256"],
     "runtimeInputsSha256": evidence["runtimeInputsSha256"],
     "wine": evidence["wine"],
+    "sessionContract": evidence["sessionContract"],
     "requiredProofs": required_proofs,
     "interfaces": contract["artifact"]["interfaces"],
     "status": evidence["status"],

@@ -21,7 +21,8 @@
       "synchroX64",
       "synchroX86",
       "chocolateyLifecycle"
-    ]
+    ],
+    "producerSessionContract": "cage.selkies-wayland/v1"
   },
   "artifact": {
     "kind": "prepared-wine-prefix",
