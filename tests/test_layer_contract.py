@@ -294,6 +294,12 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn('mark_stage apply-chocolatey-policy', source)
         self.assertIn('choco_query_launcher=(wine "$choco_win")', source)
         self.assertIn('choco_package_launcher=(wineconsole "$choco_win")', source)
+        self.assertIn('choco_working_directory="$wine_prefix/drive_c"', source)
+        self.assertIn('cd "$choco_working_directory"', source)
+        self.assertLess(
+            source.index('cd "$choco_working_directory"'),
+            source.index('mark_stage prove-runtime'),
+        )
         self.assertEqual(
             contract["artifact"]["interfaces"]["chocolatey"]["queryLauncher"],
             "wine",
