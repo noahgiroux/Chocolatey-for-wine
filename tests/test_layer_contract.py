@@ -294,6 +294,12 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn('mark_stage apply-chocolatey-policy', source)
         self.assertIn('choco_query_launcher=(wine "$choco_win")', source)
         self.assertIn('choco_package_launcher=(wineconsole "$choco_win")', source)
+        self.assertIn('choco_working_directory="$wine_prefix/drive_c"', source)
+        self.assertIn('cd "$choco_working_directory"', source)
+        self.assertLess(
+            source.index('cd "$choco_working_directory"'),
+            source.index('mark_stage prove-runtime'),
+        )
         self.assertEqual(
             contract["artifact"]["interfaces"]["chocolatey"]["queryLauncher"],
             "wine",
@@ -673,13 +679,17 @@ class LayerContractTests(unittest.TestCase):
         self.assertEqual(inputs["schemaVersion"], "cfw.runtime-inputs/v1")
         upstream = inputs["upstreamRelease"]
         self.assertEqual(upstream["repository"], "PietJankbal/Chocolatey-for-wine")
-        self.assertEqual(upstream["tag"], "v0.5a.765")
+        self.assertEqual(upstream["tag"], "v0.5c.765")
+        self.assertEqual(
+            inputs["producerWineImage"],
+            "ghcr.io/pelagians/cage-wine@sha256:7ad192e00a251523f3a071d3ffa422789b010c359d18cd45227d9f89165f6b92",
+        )
         self.assertEqual(upstream["revision"], "71bf92916b8d259458017a583a37dfde330b241e")
         self.assertEqual(
             inputs["downloads"]["cfwRelease"],
             {
-                "url": "https://github.com/PietJankbal/Chocolatey-for-wine/releases/download/v0.5a.765/Chocolatey-for-wine.7z",
-                "sha256": "aa38fff2c7ddcce756857b10ac3b8b0d3b603f82106498d1af3312a42d35da93",
+                "url": "https://github.com/PietJankbal/Chocolatey-for-wine/releases/download/v0.5c.765/Chocolatey-for-wine.7z",
+                "sha256": "225fadb61bc2608651384f91cd19aeaedb315a20b15047e6f84684ce312e0b9d",
                 "filename": "Chocolatey-for-wine.7z",
                 "installerFilename": "ChoCinstaller_0.5a.765.exe",
             },
@@ -1006,6 +1016,8 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn("wine_image:", workflow)
         self.assertIn("Immutable universal Cage Wine image", workflow)
         self.assertIn("inputs.wine_image", workflow)
+        self.assertIn("producerWineImage", workflow)
+        self.assertIn("needs.contract.outputs.wine_image", workflow)
         self.assertIn("ghcr.io/pelagians/cage-wine@sha256:", workflow)
         self.assertIn("Reject non-digest manual image", workflow)
         self.assertNotIn("docker run --privileged", workflow)

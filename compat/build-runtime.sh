@@ -632,6 +632,11 @@ fi
 choco_win='C:\ProgramData\chocolatey\choco.exe'
 choco_query_launcher=(wine "$choco_win")
 choco_package_launcher=(wineconsole "$choco_win")
+# Chocolatey 2.6.0 asks .NET for Environment.CurrentDirectory during startup.
+# A native s6 task begins under a Linux-only path, which Wine exposes in a form
+# Chocolatey's FileIOPermission compatibility layer rejects. Run every query
+# and package operation from the prefix's C: root, matching upstream CFW.
+choco_working_directory="$wine_prefix/drive_c"
 
 wrapper64="$wine_prefix/drive_c/windows/system32/WindowsPowerShell/v1.0/powershell.exe"
 wrapper32="$wine_prefix/drive_c/windows/syswow64/WindowsPowerShell/v1.0/powershell.exe"
@@ -707,6 +712,7 @@ if [[ "$feature_policy_seed_rc" -ne 0 ]]; then
   exit 70
 fi
 
+cd "$choco_working_directory"
 mark_stage prove-runtime
 synchro64_marker="$probe_dir/synchro-x64.txt"
 synchro32_marker="$probe_dir/synchro-x86.txt"

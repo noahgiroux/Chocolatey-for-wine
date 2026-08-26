@@ -40,6 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       wines: ${{ steps.contract.outputs.wines }}
+      wine_image: ${{ steps.contract.outputs.wine_image }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -61,6 +62,16 @@ jobs:
           PY
           )"
           printf 'wines=%s\n' "$wines" >> "$GITHUB_OUTPUT"
+          wine_image="$(python3 - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+          image = json.loads(Path('compat/runtime-inputs.json').read_text(encoding='utf-8'))['producerWineImage']
+          assert re.fullmatch(r'ghcr\.io/pelagians/cage-wine@sha256:[0-9a-f]{64}', image)
+          print(image)
+          PY
+          )"
+          printf 'wine_image=%s\n' "$wine_image" >> "$GITHUB_OUTPUT"
 
   runtime:
     needs: contract
@@ -72,7 +83,7 @@ jobs:
       matrix:
         wine: ${{ fromJSON(needs.contract.outputs.wines) }}
     env:
-      IMAGE: ${{ inputs.wine_image || format('ghcr.io/pelagians/cage-wine:{0}', matrix.wine) }}
+      IMAGE: ${{ inputs.wine_image || needs.contract.outputs.wine_image }}
     steps:
       - uses: actions/checkout@v4
         with:
