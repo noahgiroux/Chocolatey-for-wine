@@ -903,6 +903,7 @@ class LayerContractTests(unittest.TestCase):
     def test_runtime_archive_packaging_is_byte_reproducible(self) -> None:
         packager = ROOT / "compat" / "package-runtime.sh"
         source = packager.read_text(encoding="utf-8")
+        self.assertIn('find "$prefix" -path "$dosdevices" -prune -o -type l -print0', source)
         for token in (
             "--sort=name",
             "--format=posix",

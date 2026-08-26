@@ -45,7 +45,7 @@ while IFS= read -r -d '' link; do
     echo "[cfw] prepared prefix contains an absolute symlink: $link -> $target" >&2
     exit 66
   fi
-done < <(find "$prefix" -type l -print0)
+done < <(find "$prefix" -path "$dosdevices" -prune -o -type l -print0)
 
 # Normalize every archive-visible input that may otherwise vary by build host:
 # lexical order, tar/PAX format, volatile PAX metadata, ownership, timestamp,
