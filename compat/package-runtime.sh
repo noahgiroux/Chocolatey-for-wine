@@ -39,6 +39,13 @@ c_drive_link="$dosdevices/c:"
   echo "[cfw] prepared prefix has invalid portable C: mapping: $c_drive_link" >&2
   exit 65
 }
+while IFS= read -r -d '' link; do
+  target="$(readlink "$link")"
+  if [[ "$target" == /* ]]; then
+    echo "[cfw] prepared prefix contains an absolute symlink: $link -> $target" >&2
+    exit 66
+  fi
+done < <(find "$prefix" -path "$dosdevices" -prune -o -type l -print0)
 
 # Normalize every archive-visible input that may otherwise vary by build host:
 # lexical order, tar/PAX format, volatile PAX metadata, ownership, timestamp,

@@ -940,6 +940,13 @@ if record["status"] != "passed":
 PY2
 
 mark_stage package-runtime
+# The universal desktop session creates this host-bound convenience link. It is
+# not part of the prepared Windows runtime and must not cross the artifact
+# boundary into a consumer-controlled extraction root.
+desktop_link="$wine_prefix/drive_c/users/abc/Desktop"
+if [[ -L "$desktop_link" && "$(readlink "$desktop_link")" == "/config/Desktop" ]]; then
+  rm -f -- "$desktop_link"
+fi
 mkdir -p "$wine_prefix/.cfw"
 cp -f "$metadata" "$wine_prefix/.cfw/runtime.json"
 archive="$output_root/$artifact_name.tar.gz"

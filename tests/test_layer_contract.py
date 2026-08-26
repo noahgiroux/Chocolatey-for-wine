@@ -296,6 +296,9 @@ class LayerContractTests(unittest.TestCase):
         self.assertIn('choco_package_launcher=(wineconsole "$choco_win")', source)
         self.assertIn('choco_working_directory="$wine_prefix/drive_c"', source)
         self.assertIn('cd "$choco_working_directory"', source)
+        self.assertIn('desktop_link="$wine_prefix/drive_c/users/abc/Desktop"', source)
+        self.assertIn('readlink "$desktop_link"', source)
+        self.assertIn('rm -f -- "$desktop_link"', source)
         self.assertLess(
             source.index('cd "$choco_working_directory"'),
             source.index('mark_stage prove-runtime'),
@@ -900,6 +903,7 @@ class LayerContractTests(unittest.TestCase):
     def test_runtime_archive_packaging_is_byte_reproducible(self) -> None:
         packager = ROOT / "compat" / "package-runtime.sh"
         source = packager.read_text(encoding="utf-8")
+        self.assertIn('find "$prefix" -path "$dosdevices" -prune -o -type l -print0', source)
         for token in (
             "--sort=name",
             "--format=posix",
@@ -940,6 +944,21 @@ class LayerContractTests(unittest.TestCase):
                     env=environment,
                 )
             self.assertEqual(archives[0].read_bytes(), archives[1].read_bytes())
+            unsafe_prefix = root / "prefix-unsafe"
+            (unsafe_prefix / "drive_c/users/abc").mkdir(parents=True)
+            (unsafe_prefix / "drive_c/users/abc/Desktop").symlink_to("/config/Desktop")
+            unsafe_dosdevices = unsafe_prefix / "dosdevices"
+            unsafe_dosdevices.mkdir()
+            (unsafe_dosdevices / "c:").symlink_to("../drive_c")
+            rejected = subprocess.run(
+                ["bash", str(packager), str(unsafe_prefix), str(root / "unsafe.tar.gz")],
+                check=False,
+                env=environment,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(rejected.returncode, 66)
+            self.assertIn("absolute symlink", rejected.stderr)
             with tarfile.open(archives[0], "r:gz") as archive:
                 members = {member.name: member for member in archive.getmembers()}
                 self.assertIn("./dosdevices", members)
