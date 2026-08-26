@@ -24,7 +24,7 @@ The machine-readable contract is [`compat/contract.json`](compat/contract.json).
 
 ## Integrated canonical upstream
 
-This branch selectively integrates canonical upstream release `v0.5a.765` at
+This branch selectively integrates canonical upstream release `v0.5c.765` at
 commit `71bf92916b8d259458017a583a37dfde330b241e`. Its release archive and the
 PowerShell 7.6.5 MSI are checksum-pinned in
 [`compat/runtime-inputs.json`](compat/runtime-inputs.json). Chocolatey remains at

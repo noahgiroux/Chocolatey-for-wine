@@ -673,13 +673,13 @@ class LayerContractTests(unittest.TestCase):
         self.assertEqual(inputs["schemaVersion"], "cfw.runtime-inputs/v1")
         upstream = inputs["upstreamRelease"]
         self.assertEqual(upstream["repository"], "PietJankbal/Chocolatey-for-wine")
-        self.assertEqual(upstream["tag"], "v0.5a.765")
+        self.assertEqual(upstream["tag"], "v0.5c.765")
         self.assertEqual(upstream["revision"], "71bf92916b8d259458017a583a37dfde330b241e")
         self.assertEqual(
             inputs["downloads"]["cfwRelease"],
             {
-                "url": "https://github.com/PietJankbal/Chocolatey-for-wine/releases/download/v0.5a.765/Chocolatey-for-wine.7z",
-                "sha256": "aa38fff2c7ddcce756857b10ac3b8b0d3b603f82106498d1af3312a42d35da93",
+                "url": "https://github.com/PietJankbal/Chocolatey-for-wine/releases/download/v0.5c.765/Chocolatey-for-wine.7z",
+                "sha256": "225fadb61bc2608651384f91cd19aeaedb315a20b15047e6f84684ce312e0b9d",
                 "filename": "Chocolatey-for-wine.7z",
                 "installerFilename": "ChoCinstaller_0.5a.765.exe",
             },
